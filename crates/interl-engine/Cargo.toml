@@ -1,0 +1,45 @@
+[package]
+name = "interl-engine"
+
+[dependencies]
+tokio-util.workspace = true
+aho-corasick = "1"
+
+[dev-dependencies]
+axum.workspace = true
+
+
+[package.version]
+workspace = true
+
+
+[package.edition]
+workspace = true
+
+
+[dependencies.interl-core]
+workspace = true
+
+
+[dependencies.interl-http]
+workspace = true
+
+
+[dependencies.tokio]
+workspace = true
+
+
+[dependencies.serde]
+workspace = true
+
+
+[dependencies.serde_json]
+workspace = true
+
+
+[dependencies.thiserror]
+workspace = true
+
+
+[dependencies.uuid]
+workspace = true

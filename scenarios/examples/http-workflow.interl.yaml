@@ -1,0 +1,56 @@
+schemaVersion: 1
+id: http-workflow
+name: Single-user HTTP workflow
+environment:
+  variables:
+    query: hello world
+clientProfiles:
+  - id: api
+    baseUrl: http://127.0.0.1:8080
+    timeoutMs: 10000
+    headers:
+      accept: application/json
+identities: []
+groups:
+  - id: visitors
+    clientProfileId: api
+    count: 1
+    identityAssignment:
+      mode: shared
+      identityId: null
+workflow:
+  nodes:
+    - id: start
+      type: start
+    - id: health
+      type: http
+      config:
+        method: GET
+        path: /health
+    - id: echo
+      type: http
+      config:
+        method: POST
+        path: /echo?q=${query}
+        headers:
+          x-interl-example: m2
+        body:
+          kind: json
+          value:
+            message: Hello API
+    - id: end
+      type: end
+  edges:
+    - from: start
+      to: health
+    - from: health
+      to: echo
+    - from: echo
+      to: end
+assertions: []
+layout:
+  positions:
+    start: { x: 40, y: 160 }
+    health: { x: 300, y: 160 }
+    echo: { x: 560, y: 160 }
+    end: { x: 820, y: 160 }

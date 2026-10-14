@@ -1,0 +1,18 @@
+# Rust build artifacts
+target/
+
+# Node.js dependencies
+node_modules/
+
+# Frontend build output
+dist/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+
+plans

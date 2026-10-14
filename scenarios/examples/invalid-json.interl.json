@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "invalid-json",
+  "name": "Intentionally invalid JSON example",
+  "environment": { "variables": {} },
+  "clientProfiles": [
+    { "id": "api", "baseUrl": "http://127.0.0.1:8080", "timeoutMs": 10000, "headers": { "accept": "application/json" } }
+  ],
+  "identities": [],
+  "groups": [
+    { "id": "visitors", "clientProfileId": "api", "count": 1, "identityAssignment": { "mode": "shared", "identityId": null } }
+  ],
+  "workflow": {
+    "nodes": [
+      { "id": "start", "type": "start" },
+      { "id": "health", "type": "http", "config": { "method": "GET", "path": "/health" } },
+      { "id": "end", "type": "end" }
+    ],
+    "edges": [ { "from": "start", "to": "health" }, { "from": "health", "to": "end" } ]
+  },
+  "assertions": [],
+  "layout": { "positions": { "start": { "x": 80, "y": 160 }, "health": { "x": 340, "y": 160 }, "end": { "x": 600, "y": 160 } } },
+}

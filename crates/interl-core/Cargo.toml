@@ -1,0 +1,31 @@
+[package]
+name = "interl-core"
+
+[dependencies]
+saphyr-parser = "0.1"
+serde_path_to_error = "0.1"
+url = "2"
+
+
+[package.version]
+workspace = true
+
+
+[package.edition]
+workspace = true
+
+
+[dependencies.serde]
+workspace = true
+
+
+[dependencies.serde_json]
+workspace = true
+
+
+[dependencies.thiserror]
+workspace = true
+
+
+[dependencies.uuid]
+workspace = true

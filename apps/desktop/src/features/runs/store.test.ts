@@ -1,0 +1,40 @@
+import { describe, expect, it, vi } from "vitest";
+import { createRunStore } from "./store";
+import { exampleDocument } from "../scenarios/store";
+import type { RunEvent, RunMessage, RunReport } from "../../lib/run-types";
+const event = (id = "first"): RunEvent => ({ runId: id, sequence: 1, elapsedNs: 10, userId: "visitors:1", nodeId: null, type: "run.started", payload: { scenarioId: "hello-api" } });
+const report = (id = "first"): RunReport => ({ reportVersion: 1, runId: id, status: "passed", snapshot: {}, summary: { requests: 1, responses: 1, httpErrorResponses: 0, elapsedNs: 10 }, events: [event(id)], error: null, eventsTruncated: false, deliveryDroppedEvents: 0 });
+function setup() {
+  const callbacks: ((message: RunMessage) => void)[] = [];
+  const bridge = { start: vi.fn(async (_source: string, receive: (message: RunMessage) => void) => { callbacks.push(receive); return { runId: callbacks.length === 1 ? "first" : "second" }; }), cancel: vi.fn().mockResolvedValue(true), save: vi.fn().mockResolvedValue(true) };
+  return { bridge, callbacks, store: createRunStore(bridge) };
+}
+describe("run lifecycle", () => {
+  it("captures the scenario before IPC and keeps active input independent of edits", async () => {
+    const { store, bridge } = setup(); const document = structuredClone(exampleDocument);
+    const start = store.getState().start(document); document.clientProfiles[0].baseUrl = "http://changed.invalid"; await start;
+    expect(JSON.parse(bridge.start.mock.calls[0][0]).clientProfiles[0].baseUrl).toBe(exampleDocument.clientProfiles[0].baseUrl);
+    await store.getState().start(document); expect(bridge.start).toHaveBeenCalledTimes(1);
+  });
+  it("keeps an early completion when the start command resolves later", async () => {
+    const { store, bridge } = setup(); bridge.start.mockImplementationOnce(async (_source, receive) => { receive({ kind: "finished", report: report() }); return { runId: "first" }; });
+    await store.getState().start(exampleDocument); expect(store.getState().status).toBe("passed"); expect(store.getState().report).not.toBeNull();
+  });
+  it("waits for the final cancelled report and resynchronizes dropped live events", async () => {
+    const { store, callbacks, bridge } = setup(); await store.getState().start(exampleDocument); callbacks[0]({ kind: "event", event: event() });
+    await store.getState().cancel(); expect(bridge.cancel).toHaveBeenCalledWith("first"); expect(store.getState().status).toBe("cancelling");
+    callbacks[0]({ kind: "finished", report: { ...report(), status: "cancelled", deliveryDroppedEvents: 2 } }); expect(store.getState().status).toBe("cancelled"); expect(store.getState().events).toEqual(report().events);
+  });
+  it("ignores stale callbacks from a previous run and rejects mismatched run IDs", async () => {
+    const { store, callbacks } = setup(); await store.getState().start(exampleDocument); callbacks[0]({ kind: "finished", report: report() }); await store.getState().start(exampleDocument);
+    callbacks[0]({ kind: "finished", report: report() }); callbacks[1]({ kind: "event", event: event("wrong") }); expect(store.getState().report).toBeNull(); expect(store.getState().events).toEqual([]);
+    callbacks[1]({ kind: "event", event: event("second") }); expect(store.getState().events).toHaveLength(1);
+  });
+  it("reports a cancellation bridge failure while keeping the run active", async () => {
+    const { store, bridge } = setup(); bridge.cancel.mockRejectedValue(new Error("offline")); await store.getState().start(exampleDocument); await store.getState().cancel(); expect(store.getState().status).toBe("running"); expect(store.getState().error).toContain("Try again");
+  });
+  it("does not revive a failed task when start resolves late", async () => {
+    const { store, bridge } = setup(); bridge.start.mockImplementationOnce(async (_source,receive) => {receive({kind:"failed",message:"Execution task failed"});return {runId:"first"};});
+    await store.getState().start(exampleDocument); expect(store.getState().status).toBe("error");
+  });
+});
