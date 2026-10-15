@@ -42,9 +42,8 @@ fn document(base: &str) -> ScenarioDocument {
     )
     .unwrap()
 }
-fn http<'a>(doc: &'a mut ScenarioDocument, id: &str) -> &'a mut interl_core::HttpConfig {
-    match doc
-        .workflow
+fn http<'a>(doc: &'a mut ScenarioDocument, id: &str) -> &'a mut interl_core::ProgramHttp {
+    match doc.workflows[0]
         .nodes
         .iter_mut()
         .find(|node| node.id() == id)
@@ -55,16 +54,18 @@ fn http<'a>(doc: &'a mut ScenarioDocument, id: &str) -> &'a mut interl_core::Htt
     }
 }
 fn reconnect(doc: &mut ScenarioDocument) {
-    doc.workflow.edges = doc
-        .workflow
+    doc.workflows[0].edges = doc.workflows[0]
         .nodes
         .windows(2)
         .map(|nodes| WorkflowEdge {
+            id: format!("{}-{}", nodes[0].id(), nodes[1].id()),
+            condition: None,
+            is_default: None,
             from: nodes[0].id().into(),
             to: nodes[1].id().into(),
         })
         .collect();
-    doc.layout = None;
+    doc.workflows[0].layout = None;
 }
 async fn collect(mut handle: interl_engine::RunHandle) -> RunReport {
     let mut live = Vec::new();
@@ -76,7 +77,7 @@ async fn collect(mut handle: interl_engine::RunHandle) -> RunReport {
         serde_json::to_value(live).unwrap(),
         serde_json::to_value(&report.events).unwrap()
     );
-    assert_eq!(report.report_version, 2);
+    assert_eq!(report.report_version, 3);
     report
 }
 async fn run(doc: &ScenarioDocument, provider: &Provider, options: RunOptions) -> RunReport {
@@ -129,7 +130,7 @@ async fn bearer_login_works_in_both_formats_and_connectivity_order() {
             format,
         )
         .unwrap();
-        doc.workflow.nodes.reverse();
+        doc.workflows[0].nodes.reverse();
         let provider = Provider::default();
         let report = run(&doc, &provider, RunOptions::default()).await;
         assert_eq!(report.status, RunStatus::Passed);
@@ -162,7 +163,7 @@ async fn bearer_login_works_in_both_formats_and_connectivity_order() {
 async fn preparation_captures_credentials_once_and_exports_only_references() {
     let server = support::TestServer::start().await;
     let mut doc = document(&server.base_url);
-    let WorkflowNode::SetSession { config, .. } = &mut doc.workflow.nodes[3] else {
+    let WorkflowNode::SetSession { config, .. } = &mut doc.workflows[0].nodes[3] else {
         panic!()
     };
     config.set_headers.insert(
@@ -233,7 +234,7 @@ async fn static_identity_bearer_header_does_not_require_a_login_step() {
         .execute(
             session
                 .prepare_resolved(
-                    &login,
+                    &serde_json::from_value(serde_json::to_value(&login).unwrap()).unwrap(),
                     &Default::default(),
                     interl_http::ResolvedBody::Json(
                         json!({"username":"alice","password":"alice-password"}),
@@ -256,10 +257,10 @@ async fn static_identity_bearer_header_does_not_require_a_login_step() {
             name: "STATIC_TOKEN".into(),
         },
     );
-    doc.workflow
+    doc.workflows[0]
         .nodes
         .retain(|node| node.id() != "login" && !matches!(node, WorkflowNode::Extract { .. }));
-    let WorkflowNode::SetSession { config, .. } = &mut doc.workflow.nodes[1] else {
+    let WorkflowNode::SetSession { config, .. } = &mut doc.workflows[0].nodes[1] else {
         panic!()
     };
     config.set_headers.insert(
@@ -308,7 +309,7 @@ async fn unfamiliar_token_fields_are_omitted_before_extraction() {
     let server = support::TestServer::start().await;
     let mut doc = document(&server.base_url);
     http(&mut doc, "login").path = "/auth/login-unfamiliar".into();
-    let WorkflowNode::Extract { config, .. } = &mut doc.workflow.nodes[2] else {
+    let WorkflowNode::Extract { config, .. } = &mut doc.workflows[0].nodes[2] else {
         panic!()
     };
     config.expression = "response.body.opaqueArtifact".into();
@@ -403,8 +404,8 @@ async fn removing_authorization_suppresses_profile_defaults_and_keeps_cookies() 
         json!({"id":"removed-bearer","type":"http","config":{"method":"GET","path":"/auth/me"}}),
     )
     .unwrap();
-    let end = doc.workflow.nodes.pop().unwrap();
-    doc.workflow.nodes.extend([remove, cookie, bearer, end]);
+    let end = doc.workflows[0].nodes.pop().unwrap();
+    doc.workflows[0].nodes.extend([remove, cookie, bearer, end]);
     reconnect(&mut doc);
     let report = run(&doc, &Provider::default(), RunOptions::default()).await;
     assert_eq!(report.status, RunStatus::Passed);
@@ -514,17 +515,17 @@ async fn cancellation_at_extraction_boundaries_never_sends_authenticated_request
 async fn auth_report_budget_stops_execution_and_reserves_terminal_events() {
     let server = support::TestServer::start().await;
     let mut doc = document(&server.base_url);
-    let end = doc.workflow.nodes.pop().unwrap();
+    let end = doc.workflows[0].nodes.pop().unwrap();
     for index in 0..100 {
-        doc.workflow.nodes.push(serde_json::from_value(json!({"id":format!("more-{index}"),"type":"http","config":{"method":"GET","path":"/auth/me"}})).unwrap());
+        doc.workflows[0].nodes.push(serde_json::from_value(json!({"id":format!("more-{index}"),"type":"http","config":{"method":"GET","path":"/auth/me"}})).unwrap());
     }
-    doc.workflow.nodes.push(end);
+    doc.workflows[0].nodes.push(end);
     reconnect(&mut doc);
     let report = run(
         &doc,
         &Provider::default(),
         RunOptions {
-            max_report_bytes: 65536,
+            max_report_bytes: 262144,
             ..Default::default()
         },
     )
@@ -532,7 +533,7 @@ async fn auth_report_budget_stops_execution_and_reserves_terminal_events() {
     assert_eq!(report.status, RunStatus::Error);
     assert_eq!(report.error.as_ref().unwrap().kind, "resourceLimit");
     assert!(report.events_truncated);
-    assert!(serde_json::to_vec(&report).unwrap().len() <= 65536);
+    assert!(serde_json::to_vec(&report).unwrap().len() <= 262144);
     assert_safe(&report);
 }
 
@@ -547,7 +548,7 @@ async fn invalid_rendered_headers_stop_the_workflow_without_partial_update_event
         let config = http(&mut doc, "login");
         config.path = "/echo".into();
         config.body = Some(serde_json::from_value(json!({"kind":"jsonTemplate","fields":{"accessToken":{"source":"literal","value":token}}})).unwrap());
-        let WorkflowNode::Extract { config, .. } = &mut doc.workflow.nodes[2] else {
+        let WorkflowNode::Extract { config, .. } = &mut doc.workflows[0].nodes[2] else {
             panic!()
         };
         config.expression = "response.body.body.accessToken".into();

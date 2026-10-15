@@ -1,3 +1,4 @@
+import { emptyEventContext } from '../lib/run-types';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -88,7 +89,9 @@ describe('workspace panel tabs', () => {
     useRunStore.setState({
       status: 'passed',
       report: {
-        reportVersion: 2,
+        reportVersion: 3,
+        graph: { groups: [], workflows: [] },
+        cleanup: { status: 'notConfigured', error: null },
         runId: 'done',
         status: 'passed',
         snapshot: {},
@@ -130,6 +133,7 @@ describe('workspace panel tabs', () => {
         {
           runId: 'active',
           sequence: 1,
+          context: emptyEventContext,
           elapsedNs: 1000,
           userId: 'user',
           nodeId: 'health',

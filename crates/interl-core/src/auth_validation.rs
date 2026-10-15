@@ -3,13 +3,14 @@ use crate::diagnostic::pointer;
 use crate::expressions::compile_expression;
 use crate::validate::Errors;
 use crate::{
-    Diagnostic, ErrorCategory, IdentityAssignment, RequestBody, ScenarioDocument, SecretReference,
-    SessionHeaderValue, TemplateValue, ValidationError, WorkflowNode,
+    Diagnostic, ErrorCategory, IdentityAssignment, ProgramBody as RequestBody, ScenarioDocument,
+    SecretReference, SessionHeaderValue, TemplateValue, ValidationError, WorkflowDefinition,
+    WorkflowNode,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
 struct Check<'a> {
-    scenario: &'a ScenarioDocument,
+    workflow: &'a WorkflowDefinition,
     positions: BTreeMap<&'a str, usize>,
     indices: BTreeMap<&'a str, usize>,
     errors: Errors,
@@ -58,7 +59,7 @@ impl Check<'_> {
     fn output_source(&mut self, source: &str, name: &str, path: &str, node: &str) {
         self.name(name, &pointer(path, "name"), Some(node));
         if let Some(index) = self.earlier_source(source, &pointer(path, "nodeId"), node) {
-            match &self.scenario.workflow.nodes[index] {
+            match &self.workflow.nodes[index] {
                 WorkflowNode::Extract { config, .. } if config.output == name => {
                     self.output_uses.insert(source.to_owned(), node.to_owned());
                 }
@@ -107,6 +108,12 @@ impl Check<'_> {
                 }
                 TemplateValue::Extraction { node_id, name } => {
                     self.output_source(node_id, name, &path, node);
+                    sensitive = true;
+                }
+                TemplateValue::Environment { .. }
+                | TemplateValue::Input { .. }
+                | TemplateValue::CallOutput { .. }
+                | TemplateValue::Response { .. } => {
                     sensitive = true;
                 }
                 TemplateValue::Object { fields } => {
@@ -170,6 +177,9 @@ impl Check<'_> {
                 self.output_source(node_id, name, path, node);
                 prefix
             }
+            SessionHeaderValue::Environment { prefix, .. }
+            | SessionHeaderValue::Input { prefix, .. }
+            | SessionHeaderValue::CallOutput { prefix, .. } => prefix,
         };
         if prefix.len() > 8192 || invalid_header_text(prefix) {
             self.errors.add("invalidHeaderValue", &pointer(path, "prefix"), "Header prefixes must be at most 8192 bytes and contain no prohibited control characters.", Some(node));
@@ -181,18 +191,20 @@ fn invalid_header_text(value: &str) -> bool {
     value.bytes().any(|b| (b < 32 && b != b'\t') || b == 127)
 }
 
-pub(crate) fn validate_auth(scenario: &ScenarioDocument) -> Result<AuthPlan, Vec<ValidationError>> {
+pub(crate) fn validate_auth(
+    scenario: &ScenarioDocument,
+    workflow: &WorkflowDefinition,
+) -> Result<AuthPlan, Vec<ValidationError>> {
     // Base graph validation has already established a single connected chain.
-    let ordered = ordered_indices(scenario);
+    let ordered = ordered_indices(workflow);
     let mut check = Check {
-        scenario,
+        workflow,
         positions: ordered
             .iter()
             .enumerate()
-            .map(|(position, &index)| (scenario.workflow.nodes[index].id(), position))
+            .map(|(position, &index)| (workflow.nodes[index].id(), position))
             .collect(),
-        indices: scenario
-            .workflow
+        indices: workflow
             .nodes
             .iter()
             .enumerate()
@@ -254,8 +266,7 @@ pub(crate) fn validate_auth(scenario: &ScenarioDocument) -> Result<AuthPlan, Vec
         }
     }
     // Sources are known before HTTP capture: extraction may run much later.
-    let extraction_sources: BTreeSet<_> = scenario
-        .workflow
+    let extraction_sources: BTreeSet<_> = workflow
         .nodes
         .iter()
         .filter_map(|node| match node {
@@ -265,7 +276,7 @@ pub(crate) fn validate_auth(scenario: &ScenarioDocument) -> Result<AuthPlan, Vec
         .collect();
     let mut sensitive_session = false;
     for &index in &ordered {
-        let node = &scenario.workflow.nodes[index];
+        let node = &workflow.nodes[index];
         let node_id = node.id();
         let path = format!("/workflow/nodes/{index}/config");
         match node {
@@ -295,10 +306,7 @@ pub(crate) fn validate_auth(scenario: &ScenarioDocument) -> Result<AuthPlan, Vec
                     &pointer(&path, "sourceNodeId"),
                     node_id,
                 ) {
-                    if matches!(
-                        scenario.workflow.nodes[source_index],
-                        WorkflowNode::Http { .. }
-                    ) {
+                    if matches!(workflow.nodes[source_index], WorkflowNode::Http { .. }) {
                         check
                             .plan
                             .response_last_uses

@@ -1,3 +1,4 @@
+import { iterationWorkflow } from './lib/scenario-types';
 import { lazy, Suspense, useEffect } from 'react';
 import { CheckCircle2, FileJson2, FolderOpen, GitFork, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { Button } from './components/ui/button';
@@ -19,6 +20,7 @@ function App() {
     if (desktopAvailable) void useScenarioStore.getState().loadExample();
   }, []);
   const document = state.document;
+  const workflow = document ? iterationWorkflow(document) : undefined;
   const available = desktopAvailable && !state.busy;
   const profile = document?.clientProfiles[0];
   return (
@@ -29,7 +31,7 @@ function App() {
           <span>Interleaving</span>
         </div>
         <span className="scope-note">Scenario workspace</span>
-        <span className="local-label">Local files · schema v1</span>
+        <span className="local-label">Local files · schema v2</span>
         <ThemeControl />
       </header>
       <section className="scenario-toolbar" aria-label="Scenario actions">
@@ -68,7 +70,7 @@ function App() {
         <aside className="scenario-sidebar">
           <h2>Workflow</h2>
           <nav aria-label="Workflow nodes">
-            {document?.workflow.nodes.map((node, index) => {
+            {workflow?.nodes.map((node, index) => {
               const { Icon, label } = nodePresentation[node.type];
               return (
                 <button
@@ -100,9 +102,7 @@ function App() {
             {document?.groups.map((group) => (
               <div className="group-summary" key={group.id}>
                 <strong>{group.id}</strong>
-                <span>
-                  {group.count} {group.count === 1 ? 'user' : 'users'} · {group.clientProfileId}
-                </span>
+                <span>1 user · once · {group.clientProfileId}</span>
                 <span>Identity: {group.identityAssignment.identityId ?? 'Anonymous'}</span>
               </div>
             ))}
@@ -168,9 +168,7 @@ function App() {
             ))}
         </span>
         <span>
-          {profile
-            ? `${document?.workflow.nodes.length} nodes · ${document?.workflow.edges.length} connections`
-            : 'No scenario loaded'}
+          {profile ? `${workflow?.nodes.length} nodes · ${workflow?.edges.length} connections` : 'No scenario loaded'}
         </span>
       </footer>
     </main>

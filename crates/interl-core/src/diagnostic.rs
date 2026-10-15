@@ -26,6 +26,8 @@ pub struct DiagnosticFields {
     pub message: String,
     pub field_path: String,
     pub node_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<String>,
     pub file_path: Option<String>,
     pub line: Option<usize>,
     pub column: Option<usize>,
@@ -66,6 +68,7 @@ impl Diagnostic {
                 path.into()
             },
             node_id: None,
+            workflow_id: None,
             file_path: None,
             line: None,
             column: None,

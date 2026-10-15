@@ -1,36 +1,9 @@
 use crate::diagnostic::pointer;
 use crate::{
-    parse_scenario, AuthPlan, Diagnostic, ErrorCategory, ScenarioDocument, ScenarioFormat,
-    ValidationError, WorkflowNode,
+    AuthPlan, Diagnostic, ErrorCategory, ScenarioDocument, ValidationError, WorkflowDefinition,
+    WorkflowNode,
 };
-use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ValidationResult {
-    pub valid: bool,
-    pub document: Option<ScenarioDocument>,
-    pub diagnostics: Vec<Diagnostic>,
-}
-
-pub fn inspect_scenario(source: &str, format: ScenarioFormat) -> ValidationResult {
-    match parse_scenario(source, format) {
-        Ok(document) => {
-            let diagnostics = validate_scenario(&document).err().unwrap_or_default();
-            ValidationResult {
-                valid: diagnostics.is_empty(),
-                document: Some(document),
-                diagnostics,
-            }
-        }
-        Err(error) => ValidationResult {
-            valid: false,
-            document: None,
-            diagnostics: vec![error.diagnostic],
-        },
-    }
-}
 
 #[derive(Default)]
 pub(crate) struct Errors(pub(crate) Vec<Diagnostic>);
@@ -86,22 +59,11 @@ impl Errors {
     }
 }
 
-pub fn validate_scenario(scenario: &ScenarioDocument) -> Result<(), Vec<ValidationError>> {
-    validate_and_compile_auth(scenario).map(|_| ())
-}
-
-pub(crate) fn validate_and_compile_auth(
+pub(crate) fn validate_workflow(
     scenario: &ScenarioDocument,
+    workflow: &WorkflowDefinition,
 ) -> Result<AuthPlan, Vec<ValidationError>> {
     let mut errors = Errors::default();
-    if scenario.schema_version != 1 {
-        errors.add(
-            "unsupportedVersion",
-            "/schemaVersion",
-            "Only schemaVersion 1 is supported.",
-            None,
-        );
-    }
     if scenario.id.trim().is_empty() {
         errors.add("emptyId", "/id", "Scenario ID must not be empty.", None);
     }
@@ -181,16 +143,8 @@ pub(crate) fn validate_and_compile_auth(
                 None,
             );
         }
-        if group.count == 0 {
-            errors.add(
-                "invalidUserCount",
-                &format!("{path}/count"),
-                "User count must be greater than zero.",
-                None,
-            );
-        }
     }
-    let nodes = &scenario.workflow.nodes;
+    let nodes = &workflow.nodes;
     let unique = errors.ids(nodes.iter().map(WorkflowNode::id), "/workflow/nodes");
     for (index, node) in nodes.iter().enumerate() {
         if let WorkflowNode::Http { config, .. } = node {
@@ -218,9 +172,9 @@ pub(crate) fn validate_and_compile_auth(
         }
     }
     if unique {
-        validate_graph(scenario, &mut errors);
+        validate_graph(workflow, &mut errors);
     }
-    if let Some(layout) = &scenario.layout {
+    if let Some(layout) = &workflow.layout {
         let ids: BTreeSet<_> = nodes.iter().map(WorkflowNode::id).collect();
         for (id, position) in &layout.positions {
             let path = pointer("/layout/positions", id);
@@ -243,14 +197,14 @@ pub(crate) fn validate_and_compile_auth(
         }
     }
     if errors.0.is_empty() {
-        crate::auth_validation::validate_auth(scenario)
+        crate::auth_validation::validate_auth(scenario, workflow)
     } else {
         Err(errors.0)
     }
 }
 
-fn validate_graph(scenario: &ScenarioDocument, errors: &mut Errors) {
-    let nodes = &scenario.workflow.nodes;
+fn validate_graph(workflow: &WorkflowDefinition, errors: &mut Errors) {
+    let nodes = &workflow.nodes;
     let indices: BTreeMap<_, _> = nodes
         .iter()
         .enumerate()
@@ -282,22 +236,11 @@ fn validate_graph(scenario: &ScenarioDocument, errors: &mut Errors) {
             None,
         );
     }
-    if !nodes
-        .iter()
-        .any(|node| matches!(node, WorkflowNode::Http { .. }))
-    {
-        errors.add(
-            "missingHttp",
-            "/workflow/nodes",
-            "Workflow requires one or more HTTP nodes.",
-            None,
-        );
-    }
     let mut outgoing = vec![Vec::new(); nodes.len()];
     let mut incoming = vec![0usize; nodes.len()];
     let mut edges = BTreeSet::new();
     let mut dangling = false;
-    for (index, edge) in scenario.workflow.edges.iter().enumerate() {
+    for (index, edge) in workflow.edges.iter().enumerate() {
         let path = format!("/workflow/edges/{index}");
         let (Some(&from), Some(&to)) = (
             indices.get(edge.from.as_str()),
@@ -341,7 +284,10 @@ fn validate_graph(scenario: &ScenarioDocument, errors: &mut Errors) {
             WorkflowNode::End { .. } => (1, 0),
             WorkflowNode::Http { .. }
             | WorkflowNode::Extract { .. }
-            | WorkflowNode::SetSession { .. } => (1, 1),
+            | WorkflowNode::SetSession { .. }
+            | WorkflowNode::Call { .. }
+            | WorkflowNode::ExclusiveSplit { .. }
+            | WorkflowNode::ExclusiveMerge { .. } => (1, 1),
         };
         if (incoming[index], outgoing[index].len()) != expected {
             errors.add(

@@ -1,3 +1,4 @@
+import { emptyEventContext } from '../../lib/run-types';
 import { describe, expect, it, vi } from 'vitest';
 import { createRunStore } from './store';
 import { exampleDocument } from '../scenarios/store';
@@ -5,14 +6,17 @@ import type { RunEvent, RunMessage, RunReport } from '../../lib/run-types';
 const event = (id = 'first'): RunEvent => ({
   runId: id,
   sequence: 1,
+  context: emptyEventContext,
   elapsedNs: 10,
   userId: 'visitors:1',
   nodeId: null,
   type: 'run.started',
-  payload: { scenarioId: 'hello-api' },
+  payload: { scenarioId: 'hello-api', graph: { groups: [], workflows: [] } },
 });
 const report = (id = 'first'): RunReport => ({
-  reportVersion: 2,
+  reportVersion: 3,
+  graph: { groups: [], workflows: [] },
+  cleanup: { status: 'notConfigured', error: null },
   runId: id,
   status: 'passed',
   snapshot: {},
@@ -50,7 +54,7 @@ describe('run lifecycle', () => {
   it('keeps an early completion when the start command resolves later', async () => {
     const { store, bridge } = setup();
     bridge.start.mockImplementationOnce(async (_source, receive) => {
-      receive({ kind: 'finished', report: report() });
+      receive({ protocolVersion: 3, kind: 'finished', report: report() });
       return { runId: 'first' };
     });
     await store.getState().start(exampleDocument);
@@ -60,24 +64,28 @@ describe('run lifecycle', () => {
   it('waits for the final cancelled report and resynchronizes dropped live events', async () => {
     const { store, callbacks, bridge } = setup();
     await store.getState().start(exampleDocument);
-    callbacks[0]({ kind: 'event', event: event() });
+    callbacks[0]({ protocolVersion: 3, kind: 'event', event: event() });
     await store.getState().cancel();
     expect(bridge.cancel).toHaveBeenCalledWith('first');
     expect(store.getState().status).toBe('cancelling');
-    callbacks[0]({ kind: 'finished', report: { ...report(), status: 'cancelled', deliveryDroppedEvents: 2 } });
+    callbacks[0]({
+      protocolVersion: 3,
+      kind: 'finished',
+      report: { ...report(), status: 'cancelled', deliveryDroppedEvents: 2 },
+    });
     expect(store.getState().status).toBe('cancelled');
     expect(store.getState().events).toEqual(report().events);
   });
   it('ignores stale callbacks from a previous run and rejects mismatched run IDs', async () => {
     const { store, callbacks } = setup();
     await store.getState().start(exampleDocument);
-    callbacks[0]({ kind: 'finished', report: report() });
+    callbacks[0]({ protocolVersion: 3, kind: 'finished', report: report() });
     await store.getState().start(exampleDocument);
-    callbacks[0]({ kind: 'finished', report: report() });
-    callbacks[1]({ kind: 'event', event: event('wrong') });
+    callbacks[0]({ protocolVersion: 3, kind: 'finished', report: report() });
+    callbacks[1]({ protocolVersion: 3, kind: 'event', event: event('wrong') });
     expect(store.getState().report).toBeNull();
     expect(store.getState().events).toEqual([]);
-    callbacks[1]({ kind: 'event', event: event('second') });
+    callbacks[1]({ protocolVersion: 3, kind: 'event', event: event('second') });
     expect(store.getState().events).toHaveLength(1);
   });
   it('reports a cancellation bridge failure while keeping the run active', async () => {
@@ -91,7 +99,7 @@ describe('run lifecycle', () => {
   it('does not revive a failed task when start resolves late', async () => {
     const { store, bridge } = setup();
     bridge.start.mockImplementationOnce(async (_source, receive) => {
-      receive({ kind: 'failed', message: 'Execution task failed' });
+      receive({ protocolVersion: 3, kind: 'failed', message: 'Execution task failed' });
       return { runId: 'first' };
     });
     await store.getState().start(exampleDocument);

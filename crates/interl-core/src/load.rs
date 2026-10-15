@@ -1,20 +1,10 @@
 use crate::{
-    inspect_scenario, parse_scenario_with_limits, Diagnostic, ErrorCategory, ScenarioDocument,
-    ScenarioFormat, ScenarioLimits, ScenarioLoadError, ValidationResult,
+    parse_scenario_with_limits, Diagnostic, ErrorCategory, ScenarioDocument, ScenarioFormat,
+    ScenarioLimits, ScenarioLoadError,
 };
-use serde::Serialize;
 use std::{fs::File, io::Read, path::Path};
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenScenarioResult {
-    pub path: String,
-    pub format: ScenarioFormat,
-    pub source: String,
-    pub validation: ValidationResult,
-}
-
-fn read_source(
+pub(crate) fn read_source(
     path: &Path,
     limits: ScenarioLimits,
 ) -> Result<(String, ScenarioFormat), ScenarioLoadError> {
@@ -99,18 +89,4 @@ pub fn load_scenario_with_limits(
     let (source, format) = read_source(path, limits)?;
     parse_scenario_with_limits(&source, format, limits)
         .map_err(|error| error.diagnostic.with_file(path).into())
-}
-
-pub fn open_scenario(path: &Path) -> Result<OpenScenarioResult, ScenarioLoadError> {
-    let (source, format) = read_source(path, ScenarioLimits::default())?;
-    let mut validation = inspect_scenario(&source, format);
-    for diagnostic in &mut validation.diagnostics {
-        diagnostic.file_path = Some(path.to_string_lossy().into_owned());
-    }
-    Ok(OpenScenarioResult {
-        path: path.to_string_lossy().into_owned(),
-        format,
-        source,
-        validation,
-    })
 }

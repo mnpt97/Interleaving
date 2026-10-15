@@ -1,6 +1,6 @@
 //! The single boundary for sanitized snapshots and HTTP observations.
 use crate::{redaction::Redactor, secrets::ResolvedCredentials, EventKind, SecretProvider};
-use interl_core::{Diagnostic, ExecutionPlan, ScenarioDocument};
+use interl_core::Diagnostic;
 use interl_http::{HttpResponse, PreparedRequest, Url};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -18,22 +18,47 @@ impl std::fmt::Debug for RunSecurity {
     }
 }
 impl RunSecurity {
-    pub(crate) fn prepare(
-        document: &ScenarioDocument,
-        plan: &ExecutionPlan,
+    pub(crate) fn prepare_program(
+        program: &interl_core::v2::Program,
         fields: Vec<String>,
         provider: &dyn SecretProvider,
     ) -> Result<Self, Diagnostic> {
-        let credentials = ResolvedCredentials::resolve(plan.auth(), provider)?;
+        let credentials = ResolvedCredentials::resolve(program.auth(), provider)?;
         let mut redactor = Redactor::new(fields);
-        // Register all runtime values before even learning the static document.
         credentials.register(&mut redactor);
-        redactor.learn_document(document);
+        redactor.learn_program(program);
+        let mut sensitive_http_nodes = BTreeSet::new();
+        let conservative = !program.auth().required_secrets().is_empty()
+            || program
+                .reachable()
+                .iter()
+                .map(|i| &program.workflows()[*i])
+                .any(|w| {
+                    !w.definition().inputs.is_empty()
+                        || !w.definition().outputs.is_empty()
+                        || w.definition().nodes.iter().any(|n| {
+                            matches!(
+                                n,
+                                interl_core::v2::ProgramNode::Extract { .. }
+                                    | interl_core::v2::ProgramNode::SetSession { .. }
+                            )
+                        })
+                });
+        for (i, w) in program.workflows().iter().enumerate() {
+            for (j, n) in w.definition().nodes.iter().enumerate() {
+                if conservative || w.auth().sensitive_http_nodes().contains(n.id()) {
+                    sensitive_http_nodes.insert(format!("wf:{i}/node:{j}"));
+                }
+            }
+        }
         Ok(Self {
             credentials,
             redactor,
-            sensitive_http_nodes: plan.auth().sensitive_http_nodes().clone(),
+            sensitive_http_nodes,
         })
+    }
+    pub(crate) fn program_snapshot(&self, program: &interl_core::v2::Program) -> Value {
+        self.redactor.program_snapshot(program)
     }
     pub(crate) fn text(&self, input: &str) -> String {
         self.redactor.text(input)
@@ -48,9 +73,6 @@ impl RunSecurity {
     }
     pub(crate) fn remember_secret(&mut self, value: &str) {
         self.redactor.remember_secret(value);
-    }
-    pub(crate) fn snapshot(&self, document: &ScenarioDocument) -> Value {
-        self.redactor.snapshot(document)
     }
     pub(crate) fn request_event(
         &mut self,
@@ -129,8 +151,8 @@ mod tests {
     use super::*;
     use crate::{CancellationToken, RunReport, RunStatus, RunSummary, SecretLookupError, Trace};
     use interl_core::{
-        compile_scenario, parse_scenario, serialize_scenario, HttpConfig, RequestBody,
-        ScenarioFormat, WorkflowEdge, WorkflowNode,
+        compile_scenario, parse_scenario, serialize_scenario, HttpConfig,
+        ProgramBody as RequestBody, ScenarioDocument, ScenarioFormat, WorkflowNode,
     };
     use interl_http::{HeaderMap, HttpSession};
     use serde_json::json;
@@ -155,7 +177,7 @@ mod tests {
         .unwrap()
     }
     fn security(doc: &ScenarioDocument) -> RunSecurity {
-        RunSecurity::prepare(doc, &compile_scenario(doc).unwrap(), vec![], &Provider).unwrap()
+        RunSecurity::prepare_program(&compile_scenario(doc).unwrap(), vec![], &Provider).unwrap()
     }
     fn request(doc: &ScenarioDocument) -> PreparedRequest {
         let mut config: HttpConfig = serde_json::from_value(json!({"method":"POST","path":"/auth/login?private=hidden-query","body":{"kind":"json","value":{"opaque":PASSWORD,"username":"resolved-user-marker"}},"headers":{"x-unfamiliar":"request-header-marker"}})).unwrap();
@@ -181,21 +203,6 @@ mod tests {
             truncated,
         }
     }
-    fn prelude(doc: &mut ScenarioDocument) {
-        doc.workflow.nodes.push(WorkflowNode::Http {
-            id: "prelude".into(),
-            config: serde_json::from_value(json!({"method":"GET","path":"/health"})).unwrap(),
-        });
-        doc.workflow.edges[0] = WorkflowEdge {
-            from: "start".into(),
-            to: "prelude".into(),
-        };
-        doc.workflow.edges.push(WorkflowEdge {
-            from: "prelude".into(),
-            to: "login".into(),
-        });
-    }
-
     #[tokio::test]
     async fn sensitive_payloads_are_safe_before_live_delivery_and_report_retention() {
         let doc = document();
@@ -208,22 +215,24 @@ mod tests {
         .unwrap();
         let response = response(raw_body, false);
         let response_bytes = response.body.len();
-        let request = security.request_event("login", &request, 16384);
-        let response = security.response_event("login", &response, 16384);
+        let request = security.request_event("wf:0/node:1", &request, 16384);
+        let response = security.response_event("wf:0/node:1", &response, 16384);
         let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
         let mut trace = Trace::new(
             "test-run".into(),
             "user:1".into(),
             sender,
             CancellationToken::new(),
-            security.snapshot(&doc),
-            65536,
+            security.program_snapshot(&compile_scenario(&doc).unwrap()),
+            131072,
         );
         assert!(trace.emit(Some("login"), request, false).await);
         assert!(trace.emit(Some("login"), response, false).await);
         let live = vec![receiver.try_recv().unwrap(), receiver.try_recv().unwrap()];
         let report = RunReport {
-            report_version: 2,
+            report_version: 3,
+            graph: serde_json::json!({}),
+            cleanup: crate::CleanupOutcome::default(),
             run_id: "test-run".into(),
             status: RunStatus::Passed,
             snapshot: trace.snapshot,
@@ -270,7 +279,7 @@ mod tests {
         ] {
             let raw = response(bytes, truncated);
             let event =
-                serde_json::to_value(security.response_event("login", &raw, 16384)).unwrap();
+                serde_json::to_value(security.response_event("wf:0/node:1", &raw, 16384)).unwrap();
             assert_eq!(event["payload"]["body"]["omitted"], true);
             assert_eq!(event["payload"]["body"]["truncated"], truncated);
             assert!(!event.to_string().contains("fresh-token-marker"));
@@ -278,9 +287,13 @@ mod tests {
     }
     #[test]
     fn registered_values_raw_encoded_and_escaped_are_masked_before_later_use() {
-        let mut doc = document();
-        prelude(&mut doc);
+        let doc = parse_scenario(
+            include_str!("../../../scenarios/examples/hello-api.json"),
+            ScenarioFormat::Json,
+        )
+        .unwrap();
         let mut security = security(&doc);
+        security.remember_secret(PASSWORD);
         let escaped = serde_json::to_string(PASSWORD).unwrap();
         let forms = [
             PASSWORD.to_owned(),
@@ -294,7 +307,7 @@ mod tests {
                 false,
             );
             let EventKind::ResponseReceived { body, .. } =
-                security.response_event("prelude", &raw, 16384)
+                security.response_event("wf:0/node:1", &raw, 16384)
             else {
                 panic!()
             };
@@ -308,7 +321,7 @@ mod tests {
         let doc = document();
         let original = serialize_scenario(&doc).unwrap();
         let security = security(&doc);
-        let snapshot = security.snapshot(&doc);
+        let snapshot = security.program_snapshot(&compile_scenario(&doc).unwrap());
         assert_eq!(
             snapshot["identities"][0]["credentials"]["password"]["name"],
             "INTERL_ALICE_PASSWORD"
@@ -334,19 +347,22 @@ mod tests {
             ScenarioFormat::Json,
         )
         .unwrap();
-        let WorkflowNode::Http { config, .. } = &mut doc.workflow.nodes[1] else {
+        let WorkflowNode::Http { config, .. } = &mut doc.workflows[0].nodes[1] else {
             panic!()
         };
         config.body = Some(RequestBody::Text {
             value: "é-text-secret".into(),
         });
         let mut security = security(&doc);
-        let WorkflowNode::Http { config, .. } = &doc.workflow.nodes[1] else {
+        let WorkflowNode::Http { config, .. } = &doc.workflows[0].nodes[1] else {
             panic!()
         };
         let request = HttpSession::new(&doc.client_profiles[0], 65536, 65536)
             .unwrap()
-            .prepare(config, &Default::default())
+            .prepare(
+                &serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap(),
+                &Default::default(),
+            )
             .unwrap();
         let event =
             serde_json::to_value(security.request_event("health", &request, 16384)).unwrap();
@@ -362,20 +378,18 @@ mod tests {
     }
     #[test]
     fn redaction_exhaustion_fails_closed_without_recursive_registration() {
-        struct Nested;
-        impl SecretProvider for Nested {
-            fn lookup(&self, _: &str) -> Result<OsString, SecretLookupError> {
-                Ok("Bearer ".repeat(1170).into())
-            }
-        }
-        let mut doc = document();
-        prelude(&mut doc);
-        let mut security =
-            RunSecurity::prepare(&doc, &compile_scenario(&doc).unwrap(), vec![], &Nested).unwrap();
-        let snapshot = security.snapshot(&doc);
+        let doc = parse_scenario(
+            include_str!("../../../scenarios/examples/hello-api.json"),
+            ScenarioFormat::Json,
+        )
+        .unwrap();
+        let mut security = security(&doc);
+        security.remember_secret(&"Bearer ".repeat(1170));
+        let snapshot = security.program_snapshot(&compile_scenario(&doc).unwrap());
         assert!(snapshot.is_string());
         let raw = response(b"{\"unknown\":\"unregistered-marker\"}".to_vec(), false);
-        let event = serde_json::to_value(security.response_event("prelude", &raw, 16384)).unwrap();
+        let event =
+            serde_json::to_value(security.response_event("wf:0/node:1", &raw, 16384)).unwrap();
         assert_eq!(event["payload"]["body"]["omitted"], true);
         assert_eq!(
             event["payload"]["body"]["reason"],

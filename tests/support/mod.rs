@@ -116,7 +116,7 @@ pub fn scenario(base_url: &str, path: &str) -> interl_core::ScenarioDocument {
     )
     .unwrap();
     document.client_profiles[0].base_url = base_url.into();
-    if let interl_core::WorkflowNode::Http { config, .. } = &mut document.workflow.nodes[1] {
+    if let interl_core::WorkflowNode::Http { config, .. } = &mut document.workflows[0].nodes[1] {
         config.path = path.into();
     }
     document

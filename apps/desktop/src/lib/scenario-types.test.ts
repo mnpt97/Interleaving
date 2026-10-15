@@ -8,7 +8,7 @@ describe('M3 scenario wire contract', () => {
     const parsed = documentSchema.parse(JSON.parse(JSON.stringify(authDocument)));
     expect(parsed).toEqual(authDocument);
     expect(parsed.identities[0].credentials.password).toEqual({ source: 'env', name: 'INTERL_ALICE_PASSWORD' });
-    expect(parsed.workflow.nodes.map((node) => node.type)).toEqual([
+    expect(parsed.workflows[0].nodes.map((node) => node.type)).toEqual([
       'start',
       'http',
       'extract',
@@ -16,7 +16,7 @@ describe('M3 scenario wire contract', () => {
       'http',
       'end',
     ]);
-    expect(parsed.workflow.nodes[3]).toMatchObject({
+    expect(parsed.workflows[0].nodes[3]).toMatchObject({
       config: {
         setHeaders: {
           authorization: { source: 'extraction', nodeId: 'extract-token', name: 'token', prefix: 'Bearer ' },
@@ -63,7 +63,7 @@ describe('M3 scenario wire contract', () => {
         category: 'validation',
         code: 'invalidExpression',
         message: 'Unsupported expression',
-        fieldPath: '/workflow/nodes/2/config/expression',
+        fieldPath: '/workflows/0/nodes/2/config/expression',
         nodeId: 'extract-token',
         filePath: null,
         line: 12,

@@ -1,6 +1,6 @@
 #[path = "../../../tests/support/mod.rs"]
 mod support;
-use interl_core::{HttpMethod, RequestBody, WorkflowNode};
+use interl_core::{HttpMethod, ProgramBody as RequestBody, WorkflowNode};
 use interl_engine::{CancellationToken, EventKind, PreparedRun, RunOptions, RunReport, RunStatus};
 use serde_json::{json, Value};
 async fn run(document: &interl_core::ScenarioDocument) -> RunReport {
@@ -55,7 +55,7 @@ async fn responses_are_not_transport_failures_and_trace_is_ordered() {
 async fn timeout_and_active_cancellation_stop_following_steps() {
     let server = support::TestServer::start().await;
     let mut document = support::scenario(&server.base_url, "/slow");
-    if let WorkflowNode::Http { config, .. } = &mut document.workflow.nodes[1] {
+    if let WorkflowNode::Http { config, .. } = &mut document.workflows[0].nodes[1] {
         config.timeout_ms = Some(20);
     }
     let report = run(&document).await;
@@ -63,7 +63,7 @@ async fn timeout_and_active_cancellation_stop_following_steps() {
     assert_eq!(report.error.unwrap().kind, "timeout");
     // Consume the timeout request's readiness notification before the cancellation case.
     server.entered.notified().await;
-    if let WorkflowNode::Http { config, .. } = &mut document.workflow.nodes[1] {
+    if let WorkflowNode::Http { config, .. } = &mut document.workflows[0].nodes[1] {
         config.timeout_ms = Some(1000);
     }
     let cancel = CancellationToken::new();
@@ -97,7 +97,7 @@ async fn redaction_covers_headers_json_queries_snapshot_and_response_echoes() {
     doc.client_profiles[0]
         .headers
         .insert("Authorization".into(), "Bearer header-secret".into());
-    if let WorkflowNode::Http { config, .. } = &mut doc.workflow.nodes[1] {
+    if let WorkflowNode::Http { config, .. } = &mut doc.workflows[0].nodes[1] {
         config.method = HttpMethod::Post;
         config.body = Some(RequestBody::Json {
             value: json!({"password":"body-secret","echo":"body-secret","public":"visible"}),
@@ -148,14 +148,14 @@ async fn cancelled_full_channel_finishes_and_retains_critical_events() {
 async fn report_limit_stops_execution_and_keeps_terminal_failure() {
     let server = support::TestServer::start().await;
     let mut doc = support::scenario(&server.base_url, "/echo");
-    if let WorkflowNode::Http { config, .. } = &mut doc.workflow.nodes[1] {
+    if let WorkflowNode::Http { config, .. } = &mut doc.workflows[0].nodes[1] {
         config.method = HttpMethod::Post;
         config.body = Some(RequestBody::Json {
-            value: json!({"data":"x".repeat(16000)}),
+            value: json!({"data":"x".repeat(40000)}),
         });
     }
     let options = RunOptions {
-        max_report_bytes: 65536,
+        max_report_bytes: 131072,
         max_preview_bytes: 65536,
         ..Default::default()
     };
@@ -164,7 +164,7 @@ async fn report_limit_stops_execution_and_keeps_terminal_failure() {
         .start(CancellationToken::new());
     while handle.events.recv().await.is_some() {}
     let report = handle.task.await.unwrap();
-    assert!(serde_json::to_vec(&report).unwrap().len() <= 65536);
+    assert!(serde_json::to_vec(&report).unwrap().len() <= 131072);
     assert!(report.events_truncated);
     assert_eq!(report.status, RunStatus::Error);
     assert_eq!(report.error.as_ref().unwrap().kind, "resourceLimit");
@@ -172,10 +172,10 @@ async fn report_limit_stops_execution_and_keeps_terminal_failure() {
 #[test]
 fn rejects_multiple_users_and_missing_variables_before_execution() {
     let mut doc = support::scenario("http://127.0.0.1:1", "/health");
-    doc.groups[0].count = 2;
+    doc.groups.push(doc.groups[0].clone());
     assert!(PreparedRun::new(&doc, RunOptions::default()).is_err());
-    doc.groups[0].count = 1;
-    if let WorkflowNode::Http { config, .. } = &mut doc.workflow.nodes[1] {
+    doc.groups.pop();
+    if let WorkflowNode::Http { config, .. } = &mut doc.workflows[0].nodes[1] {
         config.path = "/${missing}".into();
     }
     assert!(PreparedRun::new(&doc, RunOptions::default()).is_err());
@@ -197,35 +197,44 @@ fn supported_auth_shapes_prepare_without_unnecessary_secret_reads() {
     let mut declarations = base.clone();
     declarations.identities = auth.identities.clone();
     let mut template = base.clone();
-    if let WorkflowNode::Http { config, .. } = &mut template.workflow.nodes[1] {
+    if let WorkflowNode::Http { config, .. } = &mut template.workflows[0].nodes[1] {
         config.body = Some(RequestBody::JsonTemplate {
             fields: Default::default(),
         });
     }
     let mut session = base.clone();
-    session.workflow.nodes.push(WorkflowNode::SetSession {
+    session.workflows[0].nodes.push(WorkflowNode::SetSession {
         id: "update".into(),
         config: interl_core::SetSessionConfig {
             set_headers: Default::default(),
             remove_headers: vec!["authorization".into()],
         },
     });
-    session.workflow.edges = vec![
+    session.workflows[0].edges = vec![
         interl_core::WorkflowEdge {
+            id: "start-update".into(),
+            condition: None,
+            is_default: None,
             from: "start".into(),
             to: "update".into(),
         },
         interl_core::WorkflowEdge {
+            id: "update-health".into(),
+            condition: None,
+            is_default: None,
             from: "update".into(),
             to: "health".into(),
         },
         interl_core::WorkflowEdge {
+            id: "health-end".into(),
+            condition: None,
+            is_default: None,
             from: "health".into(),
             to: "end".into(),
         },
     ];
     let mut extract = base;
-    extract.workflow.nodes.push(WorkflowNode::Extract {
+    extract.workflows[0].nodes.push(WorkflowNode::Extract {
         id: "extract".into(),
         config: interl_core::ExtractConfig {
             source_node_id: "health".into(),
@@ -233,16 +242,25 @@ fn supported_auth_shapes_prepare_without_unnecessary_secret_reads() {
             output: "token".into(),
         },
     });
-    extract.workflow.edges = vec![
+    extract.workflows[0].edges = vec![
         interl_core::WorkflowEdge {
+            id: "start-health".into(),
+            condition: None,
+            is_default: None,
             from: "start".into(),
             to: "health".into(),
         },
         interl_core::WorkflowEdge {
+            id: "health-extract".into(),
+            condition: None,
+            is_default: None,
             from: "health".into(),
             to: "extract".into(),
         },
         interl_core::WorkflowEdge {
+            id: "extract-end".into(),
+            condition: None,
+            is_default: None,
             from: "extract".into(),
             to: "end".into(),
         },
@@ -268,7 +286,7 @@ fn provider_is_not_called_for_anonymous_or_statically_rejected_runs() {
         interl_core::ScenarioFormat::Json,
     )
     .unwrap();
-    auth.groups[0].count = 2;
+    auth.groups.push(auth.groups[0].clone());
     let errors = PreparedRun::new_with_secret_provider(&auth, RunOptions::default(), &NeverRead)
         .err()
         .unwrap();
@@ -279,7 +297,8 @@ async fn layout_changes_preserve_execution_events() {
     let server = support::TestServer::start().await;
     let mut doc = support::scenario(&server.base_url, "/health");
     let first = run(&doc).await;
-    doc.layout
+    doc.workflows[0]
+        .layout
         .as_mut()
         .unwrap()
         .positions
@@ -287,6 +306,14 @@ async fn layout_changes_preserve_execution_events() {
         .unwrap()
         .x = 999.;
     let second = run(&doc).await;
+    assert_eq!(
+        first.graph["workflows"][0]["nodes"][1]["position"]["x"],
+        340.
+    );
+    assert_eq!(
+        second.graph["workflows"][0]["nodes"][1]["position"]["x"],
+        999.
+    );
     let normalize = |r: RunReport| {
         r.events
             .into_iter()
@@ -294,6 +321,17 @@ async fn layout_changes_preserve_execution_events() {
                 let mut v = serde_json::to_value(e).unwrap();
                 for key in ["runId", "elapsedNs"] {
                     v.as_object_mut().unwrap().remove(key);
+                }
+                // Captured layout is observational; compare execution semantics separately.
+                if let Some(workflows) = v
+                    .pointer_mut("/payload/graph/workflows")
+                    .and_then(Value::as_array_mut)
+                {
+                    for workflow in workflows {
+                        for node in workflow["nodes"].as_array_mut().unwrap() {
+                            node.as_object_mut().unwrap().remove("position");
+                        }
+                    }
                 }
                 if let Some(headers) = v
                     .pointer_mut("/payload/headers")
@@ -326,7 +364,7 @@ async fn yaml_json_multi_request_examples_execute_in_graph_order() {
             format,
         )
         .unwrap();
-        doc.workflow.nodes.reverse(); // Connectivity, not array or layout order, schedules steps.
+        doc.workflows[0].nodes.reverse(); // Connectivity, not array or layout order, schedules steps.
         let report = run(&doc).await;
         assert_eq!(report.status, RunStatus::Passed);
         assert_eq!(report.summary.responses, 2);

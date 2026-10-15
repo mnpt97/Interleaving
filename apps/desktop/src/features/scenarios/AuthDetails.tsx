@@ -9,6 +9,14 @@ function valueReferences(value: TemplateValue, path: string): string[] {
       return [`${path}: identity.${value.field}`];
     case 'extraction':
       return [`${path}: ${value.nodeId}.${value.name}`];
+    case 'environment':
+      return [`${path}: environment.${value.name}`];
+    case 'input':
+      return [`${path}: input.${value.name}`];
+    case 'callOutput':
+      return [`${path}: ${value.nodeId}.${value.name}`];
+    case 'response':
+      return [`${path}: ${value.nodeId}.${value.field}`];
     case 'literal':
       return [`${path}: literal value (hidden)`];
     case 'object':
@@ -81,7 +89,13 @@ export function AuthDetails({ node, document }: { node: WorkflowNode; document: 
                       ? `identity.${source.field}`
                       : source.source === 'extraction'
                         ? `${source.nodeId}.${source.name}`
-                        : 'Literal value (hidden)'}
+                        : source.source === 'input'
+                          ? `input.${source.name}`
+                          : source.source === 'environment'
+                            ? `environment.${source.name}`
+                            : source.source === 'callOutput'
+                              ? `${source.nodeId}.${source.name}`
+                              : 'Literal value (hidden)'}
                   </span>
                   {source.prefix && <span> · Prefix configured (hidden)</span>}
                 </dd>

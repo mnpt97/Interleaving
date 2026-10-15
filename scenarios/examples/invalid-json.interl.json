@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "invalid-json",
   "name": "Intentionally invalid JSON example",
   "environment": { "variables": {} },

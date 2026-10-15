@@ -41,7 +41,7 @@ async fn reports_success_http_errors_and_transport_failure_with_stable_exit_code
     for (index, path, status) in [(0, "/health", 0), (1, "/not-found", 0), (2, "/slow", 3)] {
         let mut doc = support::scenario(&server.base_url, path);
         if index == 2 {
-            if let interl_core::WorkflowNode::Http { config, .. } = &mut doc.workflow.nodes[1] {
+            if let interl_core::WorkflowNode::Http { config, .. } = &mut doc.workflows[0].nodes[1] {
                 config.timeout_ms = Some(20);
             }
         }
@@ -51,12 +51,12 @@ async fn reports_success_http_errors_and_transport_failure_with_stable_exit_code
         let output = execute(input, report.clone()).await;
         assert_eq!(output.status.code(), Some(status));
         let value: Value = serde_json::from_slice(&std::fs::read(report).unwrap()).unwrap();
-        assert_eq!(value["reportVersion"], 2);
+        assert_eq!(value["reportVersion"], 3);
         assert!(value["events"].as_array().unwrap().last().unwrap()["type"] == "run.finished");
         assert!(!String::from_utf8_lossy(&output.stdout).contains("reportVersion"));
     }
     let mut doc = support::scenario(&server.base_url, "/health");
-    doc.groups[0].count = 2;
+    doc.groups.push(doc.groups[0].clone());
     let input = dir.join("invalid.interl.json");
     std::fs::write(&input, serde_json::to_vec(&doc).unwrap()).unwrap();
     let report = dir.join("invalid-report.json");

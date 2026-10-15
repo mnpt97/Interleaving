@@ -26,7 +26,7 @@ enum Commands {
 #[tokio::main]
 async fn main() -> ExitCode {
     match Cli::parse().command {
-        Commands::Validate { scenario } => match interl_core::open_scenario(&scenario) {
+        Commands::Validate { scenario } => match interl_core::open_document(&scenario) {
             Ok(result) if result.validation.valid => {
                 println!("Valid scenario: {}", scenario.display());
                 ExitCode::SUCCESS
@@ -57,7 +57,7 @@ async fn run(scenario: PathBuf, output: Option<PathBuf>) -> ExitCode {
             return ExitCode::from(2);
         }
     }
-    let document = match interl_core::open_scenario(&scenario) {
+    let document = match interl_core::open_document(&scenario) {
         Ok(result) if result.validation.valid => {
             result.validation.document.expect("valid document")
         }

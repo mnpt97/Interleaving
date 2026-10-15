@@ -1,7 +1,9 @@
 use interl_core::{Diagnostic, ErrorCategory, ScenarioFormat};
+#[cfg(test)]
+use interl_engine::CancellationToken;
 use interl_engine::{
-    CancellationToken, EnvironmentSecretProvider, PreparedRun, RunEvent, RunHandle, RunOptions,
-    RunReport, SecretProvider,
+    EnvironmentSecretProvider, PreparedRun, RunControl, RunEvent, RunHandle, RunOptions, RunReport,
+    SecretProvider, StopCause,
 };
 use serde::Serialize;
 use std::sync::Mutex;
@@ -14,21 +16,34 @@ mod support;
 pub struct RunRegistry(Mutex<Registry>);
 #[derive(Default)]
 struct Registry {
-    active: Option<(String, CancellationToken)>,
+    active: Option<(String, RunControl)>,
     report: Option<RunReport>,
     next_reservation: u64,
 }
 #[derive(Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum RunMessage {
-    Event { event: RunEvent },
-    Finished { report: Box<RunReport> },
-    Failed { message: String },
+    Event {
+        #[serde(rename = "protocolVersion")]
+        protocol_version: u32,
+        event: Box<RunEvent>,
+    },
+    Finished {
+        #[serde(rename = "protocolVersion")]
+        protocol_version: u32,
+        report: Box<RunReport>,
+    },
+    Failed {
+        #[serde(rename = "protocolVersion")]
+        protocol_version: u32,
+        message: String,
+    },
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartedRun {
     run_id: String,
+    protocol_version: u32,
 }
 fn diagnostic(message: &str) -> Diagnostic {
     Diagnostic::new(ErrorCategory::Validation, "runOperation", "$", message)
@@ -47,7 +62,7 @@ fn prepare_with_provider(
     options: RunOptions,
     provider: &dyn SecretProvider,
 ) -> Result<PreparedRun, Vec<Diagnostic>> {
-    let document = interl_core::parse_scenario(source, format).map_err(|e| vec![e.diagnostic])?;
+    let document = interl_core::parse_document(source, format).map_err(|e| vec![e.diagnostic])?;
     PreparedRun::new_with_secret_provider(&document, options, provider)
 }
 
@@ -56,7 +71,7 @@ fn prepare_with_provider(
 struct StartReservation<'a> {
     registry: &'a RunRegistry,
     id: String,
-    cancel: CancellationToken,
+    cancel: RunControl,
     committed: bool,
 }
 impl Drop for StartReservation<'_> {
@@ -91,7 +106,7 @@ impl StartReservation<'_> {
                 "Run start was cancelled; no requests were sent",
             )]);
         }
-        let handle = prepared.start(self.cancel.clone());
+        let handle = prepared.start_control(self.cancel.clone());
         registry.active = Some((handle.run_id.clone(), self.cancel.clone()));
         registry.report = None;
         self.committed = true;
@@ -114,7 +129,7 @@ impl RunRegistry {
             .checked_add(1)
             .ok_or_else(|| vec![diagnostic("Run registry capacity reached")])?;
         let id = format!("preparing:{}", registry.next_reservation);
-        let cancel = CancellationToken::new();
+        let cancel = RunControl::new();
         registry.active = Some((id.clone(), cancel.clone()));
         Ok(StartReservation {
             registry: self,
@@ -183,7 +198,7 @@ impl RunRegistry {
         if let Ok(registry) = self.0.lock()
             && let Some((_, token)) = &registry.active
         {
-            token.cancel();
+            token.stop(StopCause::OwnerClosed);
         }
     }
 }
@@ -197,7 +212,7 @@ async fn forward_events(
     while let Some(event) = handle.events.recv().await {
         if !send(event) {
             ipc_dropped += 1;
-            handle.cancel.cancel();
+            handle.control.stop(StopCause::ReceiverClosed);
         }
     }
     let result = handle.task.await.map(|mut report| {
@@ -224,7 +239,12 @@ pub fn start_scenario(
     tauri::async_runtime::spawn(async move {
         let event_channel = channel.clone();
         let (id, result) = forward_events(handle, move |event| {
-            event_channel.send(RunMessage::Event { event }).is_ok()
+            event_channel
+                .send(RunMessage::Event {
+                    protocol_version: 3,
+                    event: Box::new(event),
+                })
+                .is_ok()
         })
         .await;
         let state = app.state::<RunRegistry>();
@@ -232,17 +252,22 @@ pub fn start_scenario(
         match result {
             Ok(report) => {
                 let _ = channel.send(RunMessage::Finished {
+                    protocol_version: 3,
                     report: Box::new(report),
                 });
             }
             Err(_) => {
                 let _ = channel.send(RunMessage::Failed {
+                    protocol_version: 3,
                     message: "Execution task failed".into(),
                 });
             }
         }
     });
-    Ok(StartedRun { run_id: id })
+    Ok(StartedRun {
+        run_id: id,
+        protocol_version: 3,
+    })
 }
 #[tauri::command]
 pub fn cancel_scenario(run_id: String, state: State<'_, RunRegistry>) -> bool {
@@ -299,7 +324,7 @@ mod tests {
     #[test]
     fn only_active_run_can_be_cancelled() {
         let state = RunRegistry::default();
-        let token = CancellationToken::new();
+        let token = RunControl::new();
         state.0.lock().unwrap().active = Some(("active".into(), token.clone()));
         assert!(!state.cancel("finished"));
         assert!(!token.is_cancelled());

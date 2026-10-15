@@ -16,9 +16,11 @@ docs/                        Supported schema and verification
 plans/                       Implementation plans and accepted decisions
 ```
 
-See [DESIGN.md](DESIGN.md), [the M1 plan](plans/milestone-1.md), and [the supported scenario contract](docs/scenario-v1.md).
+See [DESIGN.md](DESIGN.md), [the M1 plan](plans/milestone-1.md), and [the supported scenario contract](docs/scenario-v2.md).
 
-M3 implementation and automated verification are available; native acceptance remains pending. The shared Rust engine now runs the `auth-login.interl.json` and `.yaml` workflows using environment credential references. Reports use version 2; validation still needs no credentials or network access. Authenticated CLI and Rust desktop-adapter parity are tested; desktop auth-node loading/rendering and reference-only inspection are implemented in Phase 9; native interaction checks remain pending. See [M3 progress and schema additions](docs/milestone-3.md).
+M3 implementation and automated verification are available; native acceptance remains pending. The shared Rust engine now runs the `auth-login.interl.json` and `.yaml` workflows using environment credential references. New reports use version 3 after M3.5 Phase 1; validation still needs no credentials or network access. Authenticated CLI and Rust desktop-adapter parity are tested; desktop auth-node loading/rendering and reference-only inspection are implemented in Phase 9; native interaction checks remain pending. See [M3 progress and schema additions](docs/milestone-3.md).
+
+The active milestone is [M3.5 — Scenario editor and visual execution](plans/milestone-3.5.md): Camunda-style node authoring, directional connections, configuration inspectors, validation, and separate Edit/Run modes with execution tokens. The accepted split places exclusive conditional branching in M3.5 and parallel branching/barriers in M5; the detailed Phase 0 contract is accepted in ADR 0002. Phase 1 implements the shared schema v2/workflow/lifecycle foundation and report/live protocol v3. Only scenario v2 is supported; V1 compatibility and migration were removed before Phase 2. The current desktop displays the iteration workflow and preserves the complete document on save. See [current capabilities and boundaries](docs/milestone-3.5.md); editor authoring remains in subsequent phases.
 
 ## Setup
 

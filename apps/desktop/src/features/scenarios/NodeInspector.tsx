@@ -1,3 +1,4 @@
+import { iterationWorkflow } from '../../lib/scenario-types';
 import { AuthDetails } from './AuthDetails';
 import { nodePresentation } from './node-presentation';
 import { useEffect } from 'react';
@@ -14,9 +15,10 @@ export function NodeInspector() {
   const document = useScenarioStore((s) => s.document);
   const selectedId = useScenarioStore((s) => s.selectedId);
   const move = useScenarioStore((s) => s.move);
-  const index = document?.workflow.nodes.findIndex((node) => node.id === selectedId) ?? -1;
-  const node = document?.workflow.nodes[index];
-  const position = selectedId ? document?.layout?.positions[selectedId] : undefined;
+  const workflow = document ? iterationWorkflow(document) : undefined;
+  const index = workflow?.nodes.findIndex((node) => node.id === selectedId) ?? -1;
+  const node = workflow?.nodes[index];
+  const position = selectedId ? workflow?.layout?.positions[selectedId] : undefined;
   const x = position?.x ?? 80 + index * 260;
   const y = position?.y ?? 160;
   const {

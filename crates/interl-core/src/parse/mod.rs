@@ -83,35 +83,23 @@ pub fn parse_scenario_with_limits(
     format: ScenarioFormat,
     limits: ScenarioLimits,
 ) -> Result<ScenarioDocument, ScenarioLoadError> {
-    if source.len() > limits.max_bytes {
-        return Err(Diagnostic::new(
-            ErrorCategory::ResourceLimit,
-            "fileSizeLimit",
-            "",
-            "Scenario source exceeds the configured byte limit.",
-        )
-        .into());
-    }
-    let value = match format {
-        ScenarioFormat::Json => json::parse(source, limits)?,
-        ScenarioFormat::Yaml => yaml::parse(source, limits)?,
-    };
+    let value = parse_value(source, format, limits)?;
     match value.get("schemaVersion") {
         None => {
             return Err(Diagnostic::new(
                 ErrorCategory::Schema,
                 "missingVersion",
                 "/schemaVersion",
-                "Declare schemaVersion: 1.",
+                "Declare schemaVersion: 2.",
             )
             .into())
         }
-        Some(version) if version.as_u64() != Some(1) => {
+        Some(version) if version.as_u64() != Some(2) => {
             return Err(Diagnostic::new(
                 ErrorCategory::Schema,
                 "unsupportedVersion",
                 "/schemaVersion",
-                "Only integer schemaVersion: 1 is supported.",
+                "Only integer schemaVersion: 2 is supported.",
             )
             .into())
         }
@@ -145,7 +133,7 @@ pub fn parse_scenario_with_limits(
         let message = if inner.starts_with("missing field") || inner.starts_with("unknown field") {
             inner
         } else {
-            "Field has an invalid type or unsupported configuration; see the schema v1 contract."
+            "Field has an invalid type or unsupported configuration; see the schema v2 contract."
                 .into()
         };
         Diagnostic::new(ErrorCategory::Schema, "invalidSchema", &path, message).into()
@@ -191,4 +179,25 @@ pub fn serialize_scenario(scenario: &ScenarioDocument) -> Result<String, Scenari
         )
         .into()
     })
+}
+
+pub(crate) fn parse_value(
+    source: &str,
+    format: ScenarioFormat,
+    limits: ScenarioLimits,
+) -> Result<Value, ScenarioLoadError> {
+    if source.len() > limits.max_bytes {
+        return Err(Diagnostic::new(
+            ErrorCategory::ResourceLimit,
+            "fileSizeLimit",
+            "",
+            "Scenario source exceeds the configured byte limit.",
+        )
+        .into());
+    }
+    let value = match format {
+        ScenarioFormat::Json => json::parse(source, limits)?,
+        ScenarioFormat::Yaml => yaml::parse(source, limits)?,
+    };
+    Ok(value)
 }

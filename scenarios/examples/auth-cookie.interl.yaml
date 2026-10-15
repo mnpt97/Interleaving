@@ -1,50 +1,86 @@
-# Single-user cookie login. Set the referenced environment variables before running.
-schemaVersion: 1
+schemaVersion: 2
 id: auth-cookie
 name: Single-user cookie login
 environment:
   variables: {}
 clientProfiles:
-  - id: api
-    baseUrl: http://127.0.0.1:8080
-    timeoutMs: 10000
-    headers:
-      accept: application/json
+- id: api
+  baseUrl: http://127.0.0.1:8080
+  timeoutMs: 10000
+  headers:
+    accept: application/json
 identities:
-  - id: alice
-    credentials:
-      username: { source: env, name: INTERL_ALICE_USERNAME }
-      password: { source: env, name: INTERL_ALICE_PASSWORD }
+- id: alice
+  credentials:
+    username:
+      source: env
+      name: INTERL_ALICE_USERNAME
+    password:
+      source: env
+      name: INTERL_ALICE_PASSWORD
 groups:
-  - id: user
-    clientProfileId: api
-    count: 1
-    identityAssignment: { mode: shared, identityId: alice }
-workflow:
-  nodes:
-    - { id: start, type: start }
-    - id: login
-      type: http
-      config:
-        method: POST
-        path: /auth/login
-        body:
-          kind: jsonTemplate
-          fields:
-            username: { source: identity, field: username }
-            password: { source: identity, field: password }
-    - id: authenticated
-      type: http
-      config: { method: GET, path: /auth/cookie-me }
-    - { id: end, type: end }
-  edges:
-    - { from: start, to: login }
-    - { from: login, to: authenticated }
-    - { from: authenticated, to: end }
+- id: user
+  clientProfileId: api
+  identityAssignment:
+    mode: shared
+    identityId: alice
+  executor:
+    kind: once
+  lifecycle:
+    iteration:
+      workflowId: main
+      inputs: {}
 assertions: []
-layout:
-  positions:
-    start: { x: 80, y: 160 }
-    login: { x: 340, y: 160 }
-    authenticated: { x: 600, y: 160 }
-    end: { x: 860, y: 160 }
+workflows:
+- nodes:
+  - id: start
+    type: start
+  - id: login
+    type: http
+    config:
+      method: POST
+      path: /auth/login
+      body:
+        kind: jsonTemplate
+        fields:
+          username:
+            source: identity
+            field: username
+          password:
+            source: identity
+            field: password
+  - id: authenticated
+    type: http
+    config:
+      method: GET
+      path: /auth/cookie-me
+  - id: end
+    type: end
+  edges:
+  - from: start
+    to: login
+    id: edge-0
+  - from: login
+    to: authenticated
+    id: edge-1
+  - from: authenticated
+    to: end
+    id: edge-2
+  id: main
+  name: Single-user cookie login
+  inputs: {}
+  outputs: {}
+  layout:
+    positions:
+      start:
+        x: 80
+        y: 160
+      login:
+        x: 340
+        y: 160
+      authenticated:
+        x: 600
+        y: 160
+      end:
+        x: 860
+        y: 160

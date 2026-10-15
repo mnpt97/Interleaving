@@ -1,6 +1,8 @@
+mod support;
 use interl_core::*;
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use support::{signature, steps};
 
 const JSON: &str = include_str!("../../../scenarios/examples/hello-api.json");
 const YAML: &str = include_str!("../../../scenarios/examples/hello-api.interl.yaml");
@@ -24,8 +26,8 @@ fn formats_models_plans_and_round_trips_are_equivalent() {
     let yaml = parse_scenario(YAML, ScenarioFormat::Yaml).unwrap();
     assert_eq!(json, yaml);
     assert_eq!(
-        compile_scenario(&json).unwrap(),
-        compile_scenario(&yaml).unwrap()
+        signature(&compile_scenario(&json).unwrap()),
+        signature(&compile_scenario(&yaml).unwrap())
     );
     let serialized = serialize_scenario(&yaml).unwrap();
     assert_eq!(
@@ -37,7 +39,7 @@ fn formats_models_plans_and_round_trips_are_equivalent() {
 
 #[test]
 fn missing_unsupported_and_wrong_type_versions_fail() {
-    for version in [json!(2), json!("1"), json!(1.0), Value::Null] {
+    for version in [json!(1), json!(3), json!("2"), json!(2.0), Value::Null] {
         let mut v = value();
         v["schemaVersion"] = version;
         assert!(has(&invalid(v), "unsupportedVersion"));
@@ -50,21 +52,21 @@ fn missing_unsupported_and_wrong_type_versions_fail() {
 #[test]
 fn schema_is_strict_and_future_declarations_are_rejected() {
     let mut v = value();
-    v["workflow"]["nodes"][1]["config"]["typo"] = json!(true);
+    v["workflows"][0]["nodes"][1]["config"]["typo"] = json!(true);
     assert!(has(&invalid(v), "invalidSchema"));
     let mut v = value();
     v["assertions"] = json!([{"id":"future"}]);
     assert!(has(&invalid(v), "unsupportedFeature"));
     for kind in ["barrier", "assert", "fork", "loop"] {
         let mut v = value();
-        v["workflow"]["nodes"][1]["type"] = json!(kind);
+        v["workflows"][0]["nodes"][1]["type"] = json!(kind);
         assert!(has(&invalid(v), "invalidSchema"));
     }
     let mut v = value();
     v["groups"][0]["identityAssignment"]["identityId"] = json!("identity");
     assert!(has(&invalid(v), "missingIdentity"));
     let mut v = value();
-    v["workflow"]["nodes"][0]["config"] = json!({});
+    v["workflows"][0]["nodes"][0]["config"] = json!({});
     assert!(has(&invalid(v), "invalidSchema"));
 }
 
@@ -125,7 +127,7 @@ fn expression_strings_and_json_body_are_preserved_without_evaluation() {
     let text = "response.status = 201 and response.body.id != null";
     let mut v = value();
     v["environment"]["variables"]["expression"] = json!(text);
-    v["workflow"]["nodes"][1]["config"]["body"] =
+    v["workflows"][0]["nodes"][1]["config"]["body"] =
         json!({"kind":"json","value":{"expression":text,"nested":[true,null,3]}});
     let scenario = parse_scenario(&v.to_string(), ScenarioFormat::Json).unwrap();
     assert_eq!(scenario.environment.variables["expression"], text);
@@ -192,11 +194,15 @@ fn reference_counts_urls_timeouts_and_duplicate_ids_are_validated() {
             "/groups/0/clientProfileId",
             json!("missing"),
         ),
-        ("invalidUserCount", "/groups/0/count", json!(0)),
+        (
+            "invalidTimeout",
+            "/groups/0/lifecycle/cleanupTimeoutMs",
+            json!(0),
+        ),
         ("invalidTimeout", "/clientProfiles/0/timeoutMs", json!(0)),
         (
             "invalidTimeout",
-            "/workflow/nodes/1/config/timeoutMs",
+            "/workflows/0/nodes/1/config/timeoutMs",
             json!(0),
         ),
         (
@@ -211,21 +217,23 @@ fn reference_counts_urls_timeouts_and_duplicate_ids_are_validated() {
         ),
         (
             "invalidRequestPath",
-            "/workflow/nodes/1/config/path",
+            "/workflows/0/nodes/1/config/path",
             json!("//example.com"),
         ),
         (
             "unknownLayoutNode",
-            "/layout/positions/missing",
+            "/workflows/0/layout/positions/missing",
             json!({"x":0,"y":0}),
         ),
     ];
     for (code, path, replacement) in cases {
         let mut v = value();
         if path.ends_with("missing") {
-            v["layout"]["positions"]["missing"] = replacement;
+            v["workflows"][0]["layout"]["positions"]["missing"] = replacement;
         } else if path.ends_with("timeoutMs") && path.starts_with("/workflow") {
-            v["workflow"]["nodes"][1]["config"]["timeoutMs"] = replacement;
+            v["workflows"][0]["nodes"][1]["config"]["timeoutMs"] = replacement;
+        } else if path.ends_with("cleanupTimeoutMs") {
+            v["groups"][0]["lifecycle"]["cleanupTimeoutMs"] = replacement;
         } else {
             *v.pointer_mut(path).unwrap() = replacement;
         }
@@ -235,10 +243,17 @@ fn reference_counts_urls_timeouts_and_duplicate_ids_are_validated() {
         let mut v = value();
         let item = v[collection][0].clone();
         v[collection].as_array_mut().unwrap().push(item);
-        assert!(has(&invalid(v), "duplicateId"));
+        assert!(has(
+            &invalid(v),
+            if collection == "groups" {
+                "runConfiguration"
+            } else {
+                "duplicateId"
+            }
+        ));
     }
     let mut v = value();
-    v["workflow"]["nodes"][1]["id"] = json!("start");
+    v["workflows"][0]["nodes"][1]["id"] = json!("start");
     assert!(has(&invalid(v), "duplicateId"));
     let mut v = value();
     v["groups"][0]["count"] = json!(-1);
@@ -251,28 +266,34 @@ fn reference_counts_urls_timeouts_and_duplicate_ids_are_validated() {
 #[test]
 fn invalid_graph_shapes_never_compile() {
     let cases = [
-        ("danglingEdge", json!([{"from":"start","to":"absent"}])),
+        (
+            "danglingEdge",
+            json!([{"id":"test-edge-1","from":"start","to":"absent"}]),
+        ),
         (
             "duplicateEdge",
-            json!([{"from":"start","to":"health"},{"from":"start","to":"health"},{"from":"health","to":"end"}]),
+            json!([{"id":"test-edge-2","from":"start","to":"health"},{"id":"test-edge-3","from":"start","to":"health"},{"id":"test-edge-4","from":"health","to":"end"}]),
         ),
         (
             "cycle",
-            json!([{"from":"start","to":"health"},{"from":"health","to":"start"}]),
+            json!([{"id":"test-edge-5","from":"start","to":"health"},{"id":"test-edge-6","from":"health","to":"start"}]),
         ),
         (
             "selfLoop",
-            json!([{"from":"start","to":"health"},{"from":"health","to":"health"}]),
+            json!([{"id":"test-edge-7","from":"start","to":"health"},{"id":"test-edge-8","from":"health","to":"health"}]),
         ),
-        ("unreachableNode", json!([{"from":"start","to":"end"}])),
+        (
+            "unreachableNode",
+            json!([{"id":"test-edge-9","from":"start","to":"end"}]),
+        ),
         (
             "nonLinearGraph",
-            json!([{"from":"start","to":"health"},{"from":"start","to":"end"},{"from":"health","to":"end"}]),
+            json!([{"id":"test-edge-10","from":"start","to":"health"},{"id":"test-edge-11","from":"start","to":"end"},{"id":"test-edge-12","from":"health","to":"end"}]),
         ),
     ];
     for (code, edges) in cases {
         let mut v = value();
-        v["workflow"]["edges"] = edges;
+        v["workflows"][0]["edges"] = edges;
         let s = parse_scenario(&v.to_string(), ScenarioFormat::Json).unwrap();
         assert!(has(&validate_scenario(&s).unwrap_err(), code));
         assert!(compile_scenario(&s).is_err());
@@ -283,32 +304,39 @@ fn invalid_graph_shapes_never_compile() {
         ("http", "missingHttp"),
     ] {
         let mut v = value();
-        v["workflow"]["nodes"]
+        v["workflows"][0]["nodes"]
             .as_array_mut()
             .unwrap()
             .retain(|node| node["type"] != kind);
-        assert!(has(&invalid(v), code));
+        if kind == "http" {
+            v["workflows"][0]["edges"] = json!([{"id":"empty-flow","from":"start","to":"end"}]);
+            v["workflows"][0]["layout"] = Value::Null;
+        }
+        assert!(has(&invalid(v), code), "missing {code}");
     }
 }
 
 #[test]
 fn multiple_http_nodes_array_order_and_layout_do_not_change_connectivity() {
     let mut v = value();
-    v["workflow"]["nodes"].as_array_mut().unwrap().push(json!({"id":"echo","type":"http","config":{"method":"POST","path":"/echo","body":{"kind":"text","value":"hello"}}}));
-    v["workflow"]["edges"] = json!([{"from":"start","to":"health"},{"from":"health","to":"echo"},{"from":"echo","to":"end"}]);
+    v["workflows"][0]["nodes"].as_array_mut().unwrap().push(json!({"id":"echo","type":"http","config":{"method":"POST","path":"/echo","body":{"kind":"text","value":"hello"}}}));
+    v["workflows"][0]["edges"] = json!([{"id":"test-edge-13","from":"start","to":"health"},{"id":"test-edge-14","from":"health","to":"echo"},{"id":"test-edge-15","from":"echo","to":"end"}]);
     let mut scenario = parse_scenario(&v.to_string(), ScenarioFormat::Json).unwrap();
     let plan = compile_scenario(&scenario).unwrap();
     assert_eq!(
-        plan.steps()
+        steps(&plan)
             .iter()
             .map(WorkflowNode::id)
             .collect::<Vec<_>>(),
         ["start", "health", "echo", "end"]
     );
-    scenario.workflow.nodes.reverse();
-    scenario.workflow.edges.reverse();
-    scenario.layout = None;
-    assert_eq!(plan, compile_scenario(&scenario).unwrap());
+    scenario.workflows[0].nodes.reverse();
+    scenario.workflows[0].edges.reverse();
+    scenario.workflows[0].layout = None;
+    assert_eq!(
+        signature(&plan),
+        signature(&compile_scenario(&scenario).unwrap())
+    );
 }
 
 #[test]
@@ -362,8 +390,8 @@ fn direct_models_cannot_bypass_semantic_validation() {
     let mut scenario = example();
     scenario.schema_version = 99;
     assert!(compile_scenario(&scenario).is_err());
-    scenario.schema_version = 1;
-    scenario
+    scenario.schema_version = 2;
+    scenario.workflows[0]
         .layout
         .as_mut()
         .unwrap()

@@ -116,7 +116,25 @@ impl fmt::Debug for ExtractionState {
             .finish_non_exhaustive()
     }
 }
+impl From<ExtractionError> for crate::RunFailure {
+    fn from(e: ExtractionError) -> Self {
+        Self {
+            kind: e.code().into(),
+            message: e.to_string(),
+        }
+    }
+}
 impl ExtractionState {
+    pub(crate) fn usage(&self) -> (usize, usize, usize) {
+        (
+            self.outputs.len(),
+            self.outputs
+                .values()
+                .map(|v| serde_json::to_vec(v.expose()).expect("string scalar").len())
+                .sum(),
+            self.response_bytes,
+        )
+    }
     pub(crate) fn new(plan: &AuthPlan, per_response_limit: usize) -> Result<Self, ExtractionError> {
         if !(1..=MAX_RESPONSE_BYTES).contains(&per_response_limit) {
             return Err(ExtractionError::ResponseLimit);
@@ -165,10 +183,20 @@ impl ExtractionState {
     /// Evaluate without changing the JSON input or session. Callers must
     /// register the returned sensitive value before subsequent observations.
     /// A failed re-extraction cannot fall back to an earlier output.
+    #[cfg(test)]
     pub(crate) fn extract(
         &mut self,
         node: &str,
         cancel: &CancellationToken,
+    ) -> Result<&ExtractedValue, ExtractionError> {
+        self.extract_bounded(node, cancel, MAX_OUTPUTS, usize::MAX)
+    }
+    pub(crate) fn extract_bounded(
+        &mut self,
+        node: &str,
+        cancel: &CancellationToken,
+        max_outputs: usize,
+        max_bytes: usize,
     ) -> Result<&ExtractedValue, ExtractionError> {
         if let Some(old) = self.outputs.remove(node) {
             self.output_bytes -= old.expose().len();
@@ -208,9 +236,14 @@ impl ExtractionState {
         if value.len() > MAX_VALUE_BYTES {
             return Err(ExtractionError::ValueLimit);
         }
-        if self.outputs.len() >= MAX_OUTPUTS || value.len() > MAX_OUTPUT_BYTES - self.output_bytes {
+        let encoded = serde_json::to_vec(value).expect("string scalar").len();
+        if self.outputs.len() >= MAX_OUTPUTS.min(max_outputs)
+            || value.len() > MAX_OUTPUT_BYTES.saturating_sub(self.output_bytes)
+            || encoded > max_bytes.saturating_sub(self.usage().1)
+        {
             return Err(ExtractionError::OutputLimit);
         }
+
         check_cancel(cancel)?;
         let value = ExtractedValue(value.into());
         check_cancel(cancel)?;

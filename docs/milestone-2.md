@@ -1,6 +1,6 @@
 # M2 — Single-user HTTP execution
 
-This records the historical M2 contract, including report v1. The current engine preserves its HTTP behavior and emits [M3 report v2](milestone-3.md#user-runtime-and-report-v2).
+This records the historical M2 contract, including report v1. Current behavior uses [scenario v2 and report/live protocol v3](milestone-3.5.md); legacy scenario formats are unsupported.
 
 M1 was accepted by the user before M2 began. M2 preserves schema v1 and the monorepo structure. The CLI and Tauri use the same `PreparedRun` from `interl-engine`; the frontend never schedules requests or validates executable semantics.
 

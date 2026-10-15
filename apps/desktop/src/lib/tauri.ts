@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { Channel, invoke, isTauri } from '@tauri-apps/api/core';
 import { runMessageSchema, type RunMessage } from './run-types';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -6,8 +7,38 @@ import { diagnosticSchema, openSchema, validationSchema, type ScenarioFormat } f
 export const desktopAvailable = isTauri();
 export async function startScenario(source: string, receive: (message: RunMessage) => void) {
   const channel = new Channel<unknown>();
-  channel.onmessage = (message) => receive(runMessageSchema.parse(message));
-  return invoke<{ runId: string }>('start_scenario', { source, format: 'json', channel });
+  let failed = false;
+  let runId: string | null = null;
+  const incompatible = () => ({
+    category: 'validation',
+    code: 'executionProtocol',
+    message: 'Execution protocol is incompatible. Restart the desktop app.',
+    fieldPath: '$',
+    nodeId: null,
+    filePath: null,
+    line: null,
+    column: null,
+  });
+  channel.onmessage = (message) => {
+    if (failed) return;
+    const parsed = runMessageSchema.safeParse(message);
+    if (parsed.success) receive(parsed.data);
+    else {
+      failed = true;
+      receive({ protocolVersion: 3, kind: 'failed', message: incompatible().message });
+      if (runId) void cancelScenario(runId).catch(() => {});
+    }
+  };
+  const raw = await invoke('start_scenario', { source, format: 'json', channel });
+  const started = z.object({ runId: z.string().max(128), protocolVersion: z.literal(3) }).safeParse(raw);
+  if (!started.success) {
+    const id = z.object({ runId: z.string().max(128) }).safeParse(raw);
+    if (id.success) void cancelScenario(id.data.runId).catch(() => {});
+    throw incompatible();
+  }
+  runId = started.data.runId;
+  if (failed) void cancelScenario(runId).catch(() => {});
+  return started.data;
 }
 export async function cancelScenario(runId: string) {
   return invoke<boolean>('cancel_scenario', { runId });
@@ -22,7 +53,8 @@ export async function saveRunReport(runId: string) {
   return true;
 }
 export async function validateSource(source: string, format: ScenarioFormat) {
-  return validationSchema.parse(await invoke('validate_scenario', { source, format }));
+  const result = validationSchema.parse(await invoke('validate_scenario', { source, format }));
+  return validationSchema.parse(result);
 }
 export async function openScenarioFile() {
   const path = await open({
@@ -30,7 +62,9 @@ export async function openScenarioFile() {
     directory: false,
     filters: [{ name: 'Interleaving scenarios', extensions: ['json', 'yaml', 'yml'] }],
   });
-  return typeof path === 'string' ? openSchema.parse(await invoke('open_scenario', { path })) : null;
+  if (typeof path !== 'string') return null;
+  const result = openSchema.parse(await invoke('open_scenario', { path }));
+  return openSchema.parse(result);
 }
 export async function saveScenarioJson(source: string, id: string) {
   const path = await save({

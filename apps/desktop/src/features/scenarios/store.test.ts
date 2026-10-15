@@ -89,7 +89,7 @@ describe('scenario state', () => {
     store.getState().move('health', { x: 999, y: 99 });
     pending.resolve(valid());
     await operation;
-    expect(store.getState().document?.layout?.positions.health).toEqual({ x: 999, y: 99 });
+    expect(store.getState().document?.workflows[0].layout?.positions.health).toEqual({ x: 999, y: 99 });
     expect(store.getState().busy).toBe(false);
   });
   it('discards stale responses when a newer file is opened and preserves YAML metadata', async () => {

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import exampleSource from '../../../../../scenarios/examples/hello-api.json?raw';
 import {
   documentSchema,
+  iterationWorkflow,
   type Diagnostic,
   type OpenScenarioResult,
   type ScenarioDocument,
@@ -128,7 +129,8 @@ export function createScenarioStore(bridge: Bridge, native = true) {
             format: result.format,
             originalSource: result.source,
             layoutDirty: false,
-            selectedId: result.validation.document?.workflow.nodes[0]?.id ?? null,
+            selectedId:
+              (result.validation.document ? iterationWorkflow(result.validation.document)?.nodes[0]?.id : null) ?? null,
             fileRevision: get().fileRevision + 1,
           });
           apply(result.validation, revision);

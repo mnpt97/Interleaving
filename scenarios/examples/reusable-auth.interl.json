@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 2,
+  "id": "reusable-login",
+  "name": "Initialize one user, then inspect its account",
+  "environment": {
+    "variables": {}
+  },
+  "clientProfiles": [
+    {
+      "id": "api",
+      "baseUrl": "http://127.0.0.1:8080",
+      "timeoutMs": 10000,
+      "headers": {}
+    }
+  ],
+  "identities": [
+    {
+      "id": "alice",
+      "credentials": {
+        "username": {
+          "source": "env",
+          "name": "INTERL_ALICE_USERNAME"
+        },
+        "password": {
+          "source": "env",
+          "name": "INTERL_ALICE_PASSWORD"
+        }
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "user",
+      "clientProfileId": "api",
+      "identityAssignment": {
+        "mode": "shared",
+        "identityId": "alice"
+      },
+      "executor": {
+        "kind": "once"
+      },
+      "lifecycle": {
+        "initialize": {
+          "workflowId": "login",
+          "inputs": {}
+        },
+        "iteration": {
+          "workflowId": "main",
+          "inputs": {
+            "token": {
+              "source": "lifecycle",
+              "phase": "initialize",
+              "name": "token"
+            }
+          }
+        },
+        "cleanup": null,
+        "cleanupTimeoutMs": 2000
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "id": "login",
+      "name": "Login",
+      "inputs": {},
+      "outputs": {
+        "token": {
+          "type": "string",
+          "value": {
+            "source": "extraction",
+            "nodeId": "extract-token",
+            "name": "token"
+          }
+        }
+      },
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "login",
+          "type": "http",
+          "config": {
+            "method": "POST",
+            "path": "/auth/login",
+            "body": {
+              "kind": "jsonTemplate",
+              "fields": {
+                "username": {
+                  "source": "identity",
+                  "field": "username"
+                },
+                "password": {
+                  "source": "identity",
+                  "field": "password"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "extract-token",
+          "type": "extract",
+          "config": {
+            "sourceNodeId": "login",
+            "expression": "response.body.accessToken",
+            "output": "token"
+          }
+        },
+        {
+          "id": "end",
+          "type": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": "start",
+          "to": "login"
+        },
+        {
+          "id": "e2",
+          "from": "login",
+          "to": "extract-token"
+        },
+        {
+          "id": "e3",
+          "from": "extract-token",
+          "to": "end"
+        }
+      ]
+    },
+    {
+      "id": "main",
+      "name": "Main",
+      "inputs": {
+        "token": {
+          "type": "string"
+        }
+      },
+      "outputs": {},
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "apply-token",
+          "type": "setSession",
+          "config": {
+            "setHeaders": {
+              "authorization": {
+                "source": "input",
+                "name": "token",
+                "prefix": "Bearer "
+              }
+            },
+            "removeHeaders": []
+          }
+        },
+        {
+          "id": "inspect",
+          "type": "call",
+          "config": {
+            "workflowId": "inspect-account",
+            "inputs": {}
+          }
+        },
+        {
+          "id": "end",
+          "type": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": "start",
+          "to": "apply-token"
+        },
+        {
+          "id": "e2",
+          "from": "apply-token",
+          "to": "inspect"
+        },
+        {
+          "id": "e3",
+          "from": "inspect",
+          "to": "end"
+        }
+      ]
+    },
+    {
+      "id": "inspect-account",
+      "name": "Inspect account",
+      "inputs": {},
+      "outputs": {},
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "request",
+          "type": "http",
+          "config": {
+            "method": "GET",
+            "path": "/auth/me"
+          }
+        },
+        {
+          "id": "end",
+          "type": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": "start",
+          "to": "request"
+        },
+        {
+          "id": "e2",
+          "from": "request",
+          "to": "end"
+        }
+      ]
+    }
+  ],
+  "assertions": []
+}

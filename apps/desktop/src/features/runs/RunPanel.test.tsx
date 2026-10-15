@@ -1,3 +1,4 @@
+import { emptyEventContext } from '../../lib/run-types';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RunPanel } from './RunPanel';
@@ -12,6 +13,7 @@ describe('HTTP response inspector', () => {
         {
           runId: 'run',
           sequence: 1,
+          context: emptyEventContext,
           elapsedNs: 1000000,
           userId: 'user',
           nodeId: 'health',
@@ -44,6 +46,7 @@ it('shows session changes as names only', () => {
       {
         runId: 'auth',
         sequence: 1,
+        context: emptyEventContext,
         elapsedNs: 1,
         userId: 'user:1',
         nodeId: 'apply-token',
@@ -66,6 +69,7 @@ it('explains authentication payload omission while retaining HTTP status', () =>
       {
         runId: 'auth',
         sequence: 1,
+        context: emptyEventContext,
         elapsedNs: 1,
         userId: 'user:1',
         nodeId: 'login',
@@ -97,6 +101,7 @@ it('shows safe extraction failures from the engine', () => {
       {
         runId: 'auth',
         sequence: 1,
+        context: emptyEventContext,
         elapsedNs: 1,
         userId: 'user:1',
         nodeId: 'extract-token',

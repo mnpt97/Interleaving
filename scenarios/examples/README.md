@@ -1,6 +1,6 @@
 # Example scenarios
 
-All valid examples use schema v1 and one group/count 1. JSON and YAML pairs describe the same executable workflow. `.interl.yml` is also accepted. Validation is offline and requires neither a server nor credentials.
+All valid examples use schema v2 with one once workload/VU/iteration. JSON/YAML pairs describe the same executable workflow; `.interl.yml` is accepted. Validation is offline and requires neither a server nor credentials. V1 is unsupported.
 
 | Files | Workflow |
 |---|---|
@@ -8,6 +8,7 @@ All valid examples use schema v1 and one group/count 1. JSON and YAML pairs desc
 | `http-workflow.interl.json`, `http-workflow.interl.yaml` | Anonymous GET/POST HTTP workflow |
 | `auth-login.interl.json`, `auth-login.interl.yaml` | POST login → extract token → set Authorization → GET `/auth/me` |
 | `auth-cookie.interl.json`, `auth-cookie.interl.yaml` | POST login → GET `/auth/cookie-me` using the same user's cookie jar; no extraction/session-header step |
+| `reusable-auth.interl.json`, `reusable-auth.interl.yaml` | V2 initialize login → token export/input → set session → reusable account-inspection call; CLI/desktop execution; current canvas displays the iteration workflow |
 | `invalid-json.interl.json` | **Intentionally invalid:** trailing comma; validation must fail with exit 2 |
 
 ```bash
@@ -28,4 +29,6 @@ Both auth workflows should finish with two HTTP 200 responses. Reports omit sens
 
 Scenarios contain references, never resolved credentials. To try another fake identity without changing the files, set the same two variables to `bob` and `bob-password`; identity ID `alice` is a stable scenario label, not a username assertion. Static bearer identity references are supported and tested, but the local server issues fresh tokens at login, so the reproducible examples use login rather than a hard-coded token.
 
-See [schema v1](../../docs/scenario-v1.md), [M3 contracts and limits](../../docs/milestone-3.md), and [acceptance checks](../../docs/m3-acceptance.md). Do not include the intentional invalid fixture in a valid-example corpus.
+See [schema v2](../../docs/scenario-v2.md), [M3 contracts and limits](../../docs/milestone-3.md), and [acceptance checks](../../docs/m3-acceptance.md). Do not include the intentional invalid fixture in a valid-example corpus.
+
+See [M3.5 progress](../../docs/milestone-3.5.md) for reusable-workflow commands, report v3, and the current v2 desktop-view boundary.

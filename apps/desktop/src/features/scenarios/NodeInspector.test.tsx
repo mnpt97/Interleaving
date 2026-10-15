@@ -18,12 +18,12 @@ beforeEach(() =>
 );
 
 it('edits positions without changing workflow semantics', async () => {
-  const workflow = useScenarioStore.getState().document!.workflow;
+  const workflow = useScenarioStore.getState().document!.workflows[0];
   render(<NodeInspector />);
   fireEvent.change(screen.getByLabelText('X'), { target: { value: '144' } });
   fireEvent.click(screen.getByRole('button', { name: 'Apply position' }));
-  await waitFor(() => expect(useScenarioStore.getState().document?.layout?.positions.health.x).toBe(144));
-  expect(useScenarioStore.getState().document!.workflow).toBe(workflow);
+  await waitFor(() => expect(useScenarioStore.getState().document?.workflows[0].layout?.positions.health.x).toBe(144));
+  expect(useScenarioStore.getState().document!.workflows[0].nodes).toBe(workflow.nodes);
 });
 
 it('shows a recovery message for an invalid coordinate', async () => {
@@ -42,7 +42,7 @@ it('selects the relevant node from a diagnostic', () => {
         category: 'validation',
         code: 'invalidTimeout',
         message: 'Timeout must be positive.',
-        fieldPath: '/workflow/nodes/1/config/timeoutMs',
+        fieldPath: '/workflows/0/nodes/1/config/timeoutMs',
         nodeId: 'health',
         filePath: null,
         line: null,
@@ -66,7 +66,7 @@ it('inspects extraction without treating it as an exit point', () => {
 
 it('shows session operations and references while hiding literal values and prefixes', () => {
   const document = structuredClone(authDocument);
-  const node = document.workflow.nodes.find((item) => item.type === 'setSession')!;
+  const node = document.workflows[0].nodes.find((item) => item.type === 'setSession')!;
   if (node.type !== 'setSession') throw new Error('Missing session fixture');
   node.config.setHeaders['x-private'] = {
     source: 'literal',
@@ -84,7 +84,7 @@ it('shows session operations and references while hiding literal values and pref
 
 it('inspects nested JSON template references while leaving literal content hidden', () => {
   const document = structuredClone(authDocument);
-  const node = document.workflow.nodes[1];
+  const node = document.workflows[0].nodes[1];
   if (node.type !== 'http' || node.config.body?.kind !== 'jsonTemplate') throw new Error('Missing template fixture');
   node.config.body.fields.extra = {
     source: 'array',
@@ -109,7 +109,7 @@ it('displays expression locations separately and opens the selected auth node in
         category: 'validation',
         code: 'invalidExpression',
         message: 'Unsupported expression',
-        fieldPath: '/workflow/nodes/2/config/expression',
+        fieldPath: '/workflows/0/nodes/2/config/expression',
         nodeId: 'extract-token',
         filePath: null,
         line: 20,
@@ -125,4 +125,27 @@ it('displays expression locations separately and opens the selected auth node in
   expect(diagnostic).toHaveTextContent('line 20, column 4');
   fireEvent.click(diagnostic);
   expect(useScenarioStore.getState()).toMatchObject({ selectedId: 'extract-token', inspectorOpen: true });
+});
+
+it('does not select a different workflow node with the same local ID from a diagnostic', () => {
+  useScenarioStore.setState({
+    selectedId: 'health',
+    diagnostics: [
+      {
+        category: 'validation',
+        code: 'invalidRequestPath',
+        message: 'Invalid path',
+        fieldPath: '/workflows/1/nodes/1/config/path',
+        workflowId: 'other',
+        nodeId: 'health',
+        filePath: null,
+        line: null,
+        column: null,
+      },
+    ],
+  });
+  render(<ValidationPanel />);
+  fireEvent.click(screen.getByRole('button', { name: /Invalid path/ }));
+  expect(useScenarioStore.getState().selectedId).toBeNull();
+  expect(screen.getByText(/workflow other/)).toBeInTheDocument();
 });

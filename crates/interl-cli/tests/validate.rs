@@ -75,7 +75,8 @@ fn malformed_and_semantically_invalid_files_report_context() {
     let path = dir.join("invalid scenario ü.interl.json");
     for (source, code) in [
         ("{", "invalidJson"),
-        ("{\"schemaVersion\":2}", "unsupportedVersion"),
+        ("{\"schemaVersion\":1}", "unsupportedVersion"),
+        ("{\"schemaVersion\":3}", "unsupportedVersion"),
     ] {
         std::fs::write(&path, source).unwrap();
         let output = run(&["validate", path.to_str().unwrap()]);

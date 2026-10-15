@@ -1,19 +1,19 @@
-use interl_core::{Diagnostic, OpenScenarioResult, ScenarioFormat, ValidationResult};
+use interl_core::{Diagnostic, DocumentValidation, OpenDocumentResult, ScenarioFormat};
 use std::path::Path;
 
 #[tauri::command]
-pub fn validate_scenario(source: &str, format: ScenarioFormat) -> ValidationResult {
-    interl_core::inspect_scenario(source, format)
+pub fn validate_scenario(source: &str, format: ScenarioFormat) -> DocumentValidation {
+    interl_core::inspect_document(source, format)
 }
 
 #[tauri::command]
-pub fn open_scenario(path: &str) -> Result<OpenScenarioResult, Diagnostic> {
-    interl_core::open_scenario(Path::new(path)).map_err(|error| error.diagnostic)
+pub fn open_scenario(path: &str) -> Result<OpenDocumentResult, Diagnostic> {
+    interl_core::open_document(Path::new(path)).map_err(|error| error.diagnostic)
 }
 
 #[tauri::command]
 pub fn save_scenario_json(path: &str, source: &str) -> Result<(), Diagnostic> {
-    use interl_core::{ErrorCategory, parse_scenario, serialize_scenario};
+    use interl_core::{ErrorCategory, parse_document, serialize_document};
     let destination = Path::new(path);
     if destination
         .extension()
@@ -28,8 +28,8 @@ pub fn save_scenario_json(path: &str, source: &str) -> Result<(), Diagnostic> {
         ));
     }
     let document =
-        parse_scenario(source, ScenarioFormat::Json).map_err(|error| error.diagnostic)?;
-    let canonical = serialize_scenario(&document).map_err(|error| error.diagnostic)?;
+        parse_document(source, ScenarioFormat::Json).map_err(|error| error.diagnostic)?;
+    let canonical = serialize_document(&document).map_err(|error| error.diagnostic)?;
     std::fs::write(destination, canonical).map_err(|_| {
         Diagnostic::new(
             ErrorCategory::Io,
@@ -55,11 +55,12 @@ mod tests {
         for (source, format) in [
             ("{", ScenarioFormat::Json),
             ("a: [", ScenarioFormat::Yaml),
-            ("{\"schemaVersion\":2}", ScenarioFormat::Json),
+            ("{\"schemaVersion\":1}", ScenarioFormat::Json),
+            ("{\"schemaVersion\":3}", ScenarioFormat::Json),
         ] {
             assert_eq!(
                 validate_scenario(source, format).diagnostics,
-                interl_core::inspect_scenario(source, format).diagnostics
+                interl_core::inspect_document(source, format).diagnostics
             );
         }
     }
@@ -78,7 +79,7 @@ mod tests {
         assert_eq!(left.diagnostics, right.diagnostics);
         assert_eq!(
             left.diagnostics,
-            interl_core::inspect_scenario(&json, ScenarioFormat::Json).diagnostics
+            interl_core::inspect_document(&json, ScenarioFormat::Json).diagnostics
         );
         assert_eq!(left.diagnostics[0].expression_line, Some(1));
         assert_eq!(
@@ -97,7 +98,9 @@ mod tests {
         assert_eq!(result.source, YAML);
         assert_eq!(
             result.validation.document.unwrap(),
-            interl_core::load_scenario(&path).unwrap()
+            interl_core::open_document(&path)
+                .map(|r| r.validation.document.unwrap())
+                .unwrap()
         );
         assert_eq!(
             open_scenario("missing.txt").unwrap_err().code,
@@ -128,5 +131,25 @@ mod tests {
         assert!(save_scenario_json(json_path.to_str().unwrap(), "{").is_err());
         assert_eq!(std::fs::read_to_string(&json_path).unwrap(), saved);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod reusable_tests {
+    use super::*;
+    #[test]
+    fn v2_validation_and_json_serialization_preserve_source_version_and_references() {
+        let source = include_str!("../../../../scenarios/examples/reusable-auth.interl.json");
+        let result = validate_scenario(source, ScenarioFormat::Json);
+        assert!(result.valid);
+        let file = result.document.unwrap();
+        assert_eq!(file.schema_version, 2);
+        let saved = interl_core::serialize_document(&file).unwrap();
+        assert!(saved.contains("INTERL_ALICE_PASSWORD"));
+        assert!(!saved.contains("alice-password"));
+        assert_eq!(
+            file,
+            interl_core::parse_document(&saved, ScenarioFormat::Json).unwrap()
+        );
     }
 }

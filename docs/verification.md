@@ -138,4 +138,43 @@ Tauri retains its existing advisory that bundle identifier `dev.interleaving.app
 
 Build outputs remain ignored. Cargo dependencies update the root lockfile; no frontend dependencies were added for M2. Git staging and commits are handled by the user; neither was performed here.
 
-See [M2 execution/report contracts](milestone-2.md) and the [scenario v1 contract](scenario-v1.md) for supported behavior and resource limits.
+See [M2 execution/report contracts](milestone-2.md) and the [supported scenario v2 contract](scenario-v2.md) for supported behavior and resource limits.
+
+
+## M3.5 Phase 1 initial automated results — 2026-10-15 (before V2-only cleanup)
+
+- Full workspace verification covers **180 Rust tests**, none ignored, plus doctests. Thirteen new core tests, eleven engine integration tests, one CLI process test, and two Rust desktop-adapter tests extend the M3 baseline. Existing v1 compilation, HTTP/authentication, security, cancellation, and report regressions remain covered.
+- Reusable JSON/YAML examples execute initialize-login → one iteration → nested workflow calls using one owned session. Tests check protected HTTP 200 responses, scalar types through inputs/status metadata/call outputs, independent invocation locals, recursion/reference/type failures, aggregate retained-body/scalar limits, and bounded cleanup on success/failure/cancellation/shutdown.
+- Report and live protocol v3 carry generated graph/workflow/node/edge keys and invocation context. The same sanitized graph is delivered in `run.started` before progress and retained in the final report, with both copies charged to its budget. CLI/headless/Rust Tauri parity and safe snapshot/live/export behavior are tested.
+- All **73 frontend tests across 14 suites** pass. Wire tests cover scenario v2 preservation, safe graph fields, required protocol/context, mismatch cancellation, and the current v1 canvas capability boundary. TypeScript checks, production Vite build, Prettier, rustfmt, workspace/all-targets check, and Clippy with warnings denied are included in final verification.
+- No dependency installations, manifest/lockfile changes, Git staging, or commits were performed. Native UI and a new bundle were not exercised; earlier native acceptance remains pending. Phase 2 editor/draft behavior and Phase 5 routing have not begun.
+
+Reproduce the automated checks with:
+
+```bash
+cargo test --workspace --no-fail-fast --offline --locked
+cargo check --workspace --all-targets --offline --locked
+cargo clippy --workspace --all-targets --offline --locked -- -D warnings
+cargo fmt --all -- --check
+npm --prefix apps/desktop test
+npm --prefix apps/desktop run format:check
+npm --prefix apps/desktop run build
+```
+
+The Rust integration suite uses controlled loopback servers. See [Phase 1 behavior and boundaries](milestone-3.5.md) and the [remaining implementation plan](../plans/milestone-3.5.md).
+
+
+## M3.5 V2-only cleanup — 2026-10-15
+
+The user accepted dropping V1 compatibility before Phase 2. Only integer `schemaVersion: 2` is supported. Removed the V1 document/graph/auth models, dispatch enum, migration/normalization helpers, V1 frontend schema, and validation-only lowering/synthetic HTTP nodes. Graph, transport, authentication, and scalar validation now operate directly on the canonical V2 definitions. Named `*_scenario` and `*_document` functions share the same implementation rather than separate version paths. Report/live protocol stays version 3.
+
+All maintained examples/fixtures and behavior regressions use V2. The desktop opens/validates/runs V2, displays the iteration workflow, uses workflow-local positions and persisted edge IDs, and saves the complete document without dropping other definitions or lifecycle/port mappings. Workflow context prevents another workflow's same-named node from receiving the current canvas highlight/diagnostic selection. The frontend preserves typed semantic drafts for Rust diagnostics. Workflow selection, editing commands, undo/redo, and draft saving remain Phase 2 onward.
+
+- **180 Rust tests**, none ignored, plus doctest checks pass with `cargo test --workspace --no-fail-fast --offline --locked`. Existing HTTP/auth/cancellation/security/cleanup/budget and CLI/headless/Tauri parity checks remain covered; unsupported-version tests cover V1 rejection through the shared APIs and adapters.
+- **76 frontend tests across 14 suites** pass. Application/configuration TypeScript checks, Vite production build, and Prettier check pass.
+- All **11 valid V2 JSON/YAML examples** pass actual CLI validation with credential variables removed. The intentional invalid JSON fixture still exits 2.
+- Workspace/all-targets check, Clippy with warnings denied, and rustfmt check **pass**. Updated documentation links/code fences/JSON blocks and all five JSON/YAML example pairs also pass consistency checks. Use the commands in the Phase 1 section above to reproduce the automated checks.
+- Updated design, accepted ADR amendment, M3.5 plan/progress, example guidance, and [supported schema contract](scenario-v2.md) document V2-only support. Historical milestone/verification records retain their historical version statements.
+- No dependencies, manifests, or lockfiles changed. No Git operations were performed. Native UI/bundle acceptance remains pending; this cleanup does not begin Phase 2 or enable exclusive routing.
+
+Fixture conversion exposed stale string substitutions and V1-specific expectations in old tests; those tests now assert they actually mutate their V2 fixture, exercise valid empty-workflow reachability, and fill the report budget through runtime events rather than a legacy payload-bearing snapshot. The V2 snapshot also now uses the existing fail-closed omission behavior if the redactor exhausts its budget.

@@ -50,9 +50,9 @@ describe('auth loading through the desktop wire boundary', () => {
         'http',
         'end',
       ]);
-      const workflow = store.getState().document!.workflow;
+      const workflow = store.getState().document!.workflows[0];
       store.getState().move('extract-token', { x: 900, y: 300 });
-      expect(store.getState().document!.workflow).toBe(workflow);
+      expect(store.getState().document!.workflows[0].nodes).toBe(workflow.nodes);
       await store.getState().save();
       expect(JSON.parse(save.mock.calls[0][0])).toEqual(store.getState().document);
       expect(store.getState().format).toBe(format);
@@ -63,7 +63,7 @@ describe('auth loading through the desktop wire boundary', () => {
   it('keeps auth fields and extraction references outside React Flow layout data', () => {
     const moved = moveNode(document, 'apply-token', { x: 999, y: 44 });
     expect(moved.identities).toBe(document.identities);
-    expect(moved.workflow).toBe(document.workflow);
+    expect(moved.workflows[0].nodes).toBe(document.workflows[0].nodes);
     expect(toFlowEdges(moved)).toEqual(toFlowEdges(document));
     expect(nodePresentation.extract.label).toBe('Extract');
     expect(nodePresentation.setSession.label).toBe('Set session');
@@ -74,7 +74,7 @@ describe('auth loading through the desktop wire boundary', () => {
     const editable = structuredClone(document);
     await run.getState().start(editable);
     editable.identities[0].credentials.password.name = 'CHANGED_REFERENCE';
-    editable.workflow.nodes.splice(1, 1);
+    editable.workflows[0].nodes.splice(1, 1);
     expect(JSON.parse(start.mock.calls[0][0])).toEqual(document);
     expect(run.getState().scenarioId).toBe('auth-login');
     expect(run.getState().status).toBe('running');

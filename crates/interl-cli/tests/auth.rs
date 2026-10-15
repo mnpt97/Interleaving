@@ -94,9 +94,8 @@ fn write(directory: &Directory, name: &str, doc: &ScenarioDocument) -> PathBuf {
     std::fs::write(&path, serde_json::to_vec(doc).unwrap()).unwrap();
     path
 }
-fn http<'a>(doc: &'a mut ScenarioDocument, id: &str) -> &'a mut interl_core::HttpConfig {
-    match doc
-        .workflow
+fn http<'a>(doc: &'a mut ScenarioDocument, id: &str) -> &'a mut interl_core::ProgramHttp {
+    match doc.workflows[0]
         .nodes
         .iter_mut()
         .find(|node| node.id() == id)
@@ -130,7 +129,7 @@ async fn authenticated_formats_use_child_environment_and_write_equivalent_safe_r
         let bytes = std::fs::read(output).unwrap();
         safe(&bytes);
         let value: Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(value["reportVersion"], 2);
+        assert_eq!(value["reportVersion"], 3);
         assert_eq!(value["status"], "passed");
         assert_eq!(value["summary"]["responses"], 2);
         assert_eq!(std::fs::read_to_string(input).unwrap(), original);
@@ -209,7 +208,7 @@ async fn runtime_failures_exit_3_while_http_statuses_keep_completion_semantics()
                 let config = http(&mut doc, "login");
                 config.path = "/echo".into();
                 config.body = Some(serde_json::from_value(json!({"kind":"jsonTemplate","fields":{"accessToken":{"source":"literal","value":"private-marker\r\ninjected"}}})).unwrap());
-                let WorkflowNode::Extract { config, .. } = &mut doc.workflow.nodes[2] else {
+                let WorkflowNode::Extract { config, .. } = &mut doc.workflows[0].nodes[2] else {
                     panic!()
                 };
                 config.expression = "response.body.body.accessToken".into();
@@ -217,7 +216,7 @@ async fn runtime_failures_exit_3_while_http_statuses_keep_completion_semantics()
                 expected = 3;
             }
             2 | 3 => {
-                doc.workflow.nodes.retain(|node| {
+                doc.workflows[0].nodes.retain(|node| {
                     !matches!(
                         node,
                         WorkflowNode::Extract { .. } | WorkflowNode::SetSession { .. }
@@ -226,16 +225,18 @@ async fn runtime_failures_exit_3_while_http_statuses_keep_completion_semantics()
                 if case == 2 {
                     http(&mut doc, "authenticated").path = "/auth/cookie-me".into();
                 }
-                doc.workflow.edges = doc
-                    .workflow
+                doc.workflows[0].edges = doc.workflows[0]
                     .nodes
                     .windows(2)
                     .map(|nodes| WorkflowEdge {
+                        id: format!("{}-{}", nodes[0].id(), nodes[1].id()),
+                        condition: None,
+                        is_default: None,
                         from: nodes[0].id().into(),
                         to: nodes[1].id().into(),
                     })
                     .collect();
-                doc.layout = None;
+                doc.workflows[0].layout = None;
                 expected = 0;
             }
             _ => {
@@ -316,4 +317,76 @@ async fn auth_interrupt_exits_130_with_redacted_partial_report() {
         .unwrap()
         .iter()
         .any(|event| event["type"] == "run.cancelled"));
+}
+
+#[tokio::test]
+async fn reusable_v2_formats_have_cli_headless_parity_and_preserve_sources() {
+    let server = support::TestServer::start().await;
+    let directory = Directory::new();
+    let mut reports = Vec::new();
+    for (source, format, name) in [
+        (
+            include_str!("../../../scenarios/examples/reusable-auth.interl.json"),
+            ScenarioFormat::Json,
+            "reusable.json",
+        ),
+        (
+            include_str!("../../../scenarios/examples/reusable-auth.interl.yaml"),
+            ScenarioFormat::Yaml,
+            "reusable.yaml",
+        ),
+    ] {
+        let source = source.replace("http://127.0.0.1:8080", &server.base_url);
+        let input = directory.file(name);
+        let output = directory.file(&format!("{name}.report.json"));
+        std::fs::write(&input, &source).unwrap();
+        let result = execute(command(&input, &output)).await;
+        assert_eq!(result.status.code(), Some(0));
+        assert!(result.stderr.is_empty());
+        safe(&result.stdout);
+        let bytes = std::fs::read(output).unwrap();
+        safe(&bytes);
+        let report: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(report["reportVersion"], 3);
+        assert_eq!(report["summary"]["responses"], 2);
+        assert_eq!(
+            report["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|e| e.pointer("/payload/status").and_then(Value::as_u64))
+                .collect::<Vec<_>>(),
+            [200, 200]
+        );
+        assert_eq!(std::fs::read_to_string(&input).unwrap(), source);
+        struct Provider;
+        impl interl_engine::SecretProvider for Provider {
+            fn lookup(
+                &self,
+                name: &str,
+            ) -> Result<std::ffi::OsString, interl_engine::SecretLookupError> {
+                match name {
+                    "INTERL_ALICE_USERNAME" => Ok("alice".into()),
+                    "INTERL_ALICE_PASSWORD" => Ok("alice-password".into()),
+                    _ => Err(interl_engine::SecretLookupError::Missing),
+                }
+            }
+        }
+        let doc = interl_core::parse_document(&source, format).unwrap();
+        let mut handle = interl_engine::PreparedRun::new_with_secret_provider(
+            &doc,
+            Default::default(),
+            &Provider,
+        )
+        .unwrap()
+        .start(interl_engine::CancellationToken::new());
+        while handle.events.recv().await.is_some() {}
+        let headless = handle.task.await.unwrap();
+        assert_eq!(
+            normalized(report.clone()),
+            normalized(serde_json::to_value(headless).unwrap())
+        );
+        reports.push(normalized(report));
+    }
+    assert_eq!(reports[0], reports[1]);
 }

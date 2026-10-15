@@ -72,11 +72,12 @@ interleaving/
 
 | Concept               | Definition                                                             | Lifetime / mutability                       |
 | --------------------- | ---------------------------------------------------------------------- | ------------------------------------------- |
-| Scenario              | Versioned workflow, group declarations, assertions, references, layout | Immutable run snapshot                      |
+| Scenario              | Versioned test definition: reusable workflows, workload groups, lifecycle bindings, assertions, references, layout | Immutable run snapshot |
 | Environment           | Non-secret variables and references to secret sources                  | Immutable per run                           |
 | Client profile        | Base URL, headers, timeouts, TLS policy, default auth strategy         | Immutable per run                           |
 | Identity              | Secret references, username/password/token/certificate references      | Immutable config; resolved only at run time |
-| Virtual-user group    | Client profile, identity assignment policy, user count, start policy   | Immutable per run                           |
+| Workflow | Reusable typed graph with explicit inputs/outputs; no independent load scheduler | Immutable definition / per-invocation state |
+| Workload group | Client profile, identity assignment, lifecycle workflows, executor/load schedule | Immutable per run |
 | Virtual user          | Independent session, variable scope, cookies, active transport         | Mutable and isolated to one user            |
 | Shared scenario state | Explicitly named values for coordinated tests                          | Mutable only via defined operations         |
 | Step state            | Request/response, temporary extraction values                          | Ephemeral                                   |
@@ -84,9 +85,44 @@ interleaving/
 
 **Isolation invariant:** Two virtual users never share a mutable cookie jar, session header map, active HTTP client transport, or session token by accident. They may deliberately use the same credentials while maintaining independent sessions.
 
-**Identity assignment modes:** `shared` (same identity, separate sessions), `pool` (assign from declared identities), `unique` (one distinct identity per user; validate enough identities exist). Identity count and user count are independent.
+**Identity assignment modes:** `shared` (same credentials, separate sessions), `pool` (assign from declared identities under an explicit reuse policy), `unique` (one distinct identity per active VU; validate enough identities for peak simultaneous demand). Identity count and VU count are independent. Assignment remains stable for the lifetime of a VU; pool leases and cross-group uniqueness scope must be defined in M4.
 
 **Concurrency invariant:** `N` virtual users means `N` logical independent schedulers; it does not imply `N` OS threads, TCP connections, or unique identities.
+
+### Accepted workload and actor model
+
+A configured client and a running virtual user are separate concepts. A client profile describes connection/transport defaults; an identity describes the account or TLS principal through secret references. A workload group binds these definitions to behavior and scheduling. A VU is one instantiated actor, owning its mutable session and execution context. Do not add a second ambiguous “real user client” object that also owns cookies or a scheduler.
+
+Fifty VUs using Alice's credentials mean fifty independently initialized client sessions acting as one account, not fifty distinct people. Sharing a certificate likewise shares a TLS principal, not an HTTP session. Server-side authentication policies can still invalidate concurrent sessions for the same account; client-side isolation does not change that behavior. Deliberate sharing of an issued authentication token/session is an advanced explicit policy, never the default.
+
+A scenario can ultimately contain independent workload groups with different profiles, identity pools, workflows, and load schedules. A group may reuse a workflow used by another group without sharing runtime state. The accepted composition is:
+
+```text
+Scenario: checkout test
+├── Reusable workflows: customer-login, browse-and-buy, admin-login, inspect-orders
+├── Buyers workload
+│   ├── Client profile: customer-api
+│   ├── Identity assignment: customer account pool
+│   ├── Initialize: customer-login; iteration: browse-and-buy
+│   └── Executor: ramp 0 → 50 → 0 VUs
+└── Administrators workload
+    ├── Client profile: admin-api
+    ├── Identity assignment: shared admin-service credentials
+    ├── Initialize: admin-login; iteration: inspect-orders
+    └── Executor: ramp 0 → 2 → 0 VUs
+```
+
+This illustrates the accepted target architecture, not current executable scheduling syntax. M3.5 Phase 1 supports only schema v2, reusable workflows/lifecycle bindings, and one once workload/VU/iteration. M4 adds multiple executing groups, fixed/ramping VUs, and identity-pool scheduling; M6 supplies mTLS transport. V1 is intentionally unsupported during pre-release development: reject it clearly without automatic migration. Inline login remains an explicit iteration sequence unless the author chooses an initialize workflow.
+
+A load schedule belongs to a workload group, not to an identity or reusable workflow. M4 initially supports fixed VUs and staged ramping VUs, with explicit duration/iteration/stop policies, graceful draining, and hard resource limits. A VU completes workflow iterations sequentially; the scheduler controls repetitions without requiring a cycle in the graph. Ramping VUs controls concurrency, not requests per second. Arrival-rate executors are a separate future capability with bounded VU allocation. Report allocated/initializing/ready/draining VUs separately so authentication time and failures do not falsely appear as achieved business load.
+
+### Reusable workflows and authentication ownership
+
+Reuse authentication as a workflow/subprocess executed inside the calling VU, rather than as an independently scheduled child scenario. A parent scenario owns scheduling; a reusable workflow owns behavior and typed input/output contracts. An invocation shares only the caller's explicitly owned session/identity, receives explicit input mappings, and exposes explicit output mappings. Its temporary values remain scoped to that invocation. Authentication outputs stay Rust-only and sensitive; exported outputs inherit sensitivity and existing retention/resource limits. Bound invocation depth/count and reject direct/indirect recursive calls.
+
+Per-VU initialization is the default place for login. A parent must not authenticate once and distribute mutable HTTP clients/cookie jars to its VUs. Supplying the same issued token to many VUs is a deliberately shared server-session test, even if the local jars differ; it requires an explicit future policy. Reusable auth workflows do not resolve secrets in React or turn scenario files into credential storage.
+
+Independent buyer/admin workloads differ from a coordinated buyer/seller transaction. A coordinated journey needs distinct actor sessions, explicit data exchange, and synchronization. That orchestration belongs to M5; changing one VU's identity midway through a workflow is not a substitute for multiple actors.
 
 ## 5. Scenario File Formats — YAML and JSON
 
@@ -126,7 +162,7 @@ ScenarioDocument (Rust / Serde)
 Schema and semantic validation
           |
           v
-Compiled ExecutionPlan
+Compiled Program
           |
           v
 interl-engine
@@ -291,65 +327,101 @@ Add tests covering:
 - Define the desktop editor's policy for preserving YAML comments and formatting.
 - Add format conversion commands if useful, such as `interl convert`.
 
-Persist a **versioned JSON document**, not React Flow's runtime state. Use `schemaVersion: 1`. The example below is the **target contract to implement**; do not assume the repository already supports it.
+Persist a **versioned JSON document**, not React Flow's runtime state. Only `schemaVersion: 2` is supported. This minimal executable example uses one once workload and a workflow-local layout:
 
 ```json
 {
-  "schemaVersion": 1,
-  "id": "checkout-race",
-  "name": "Checkout race",
-  "environment": { "variables": { "itemId": "item-123" } },
+  "schemaVersion": 2,
+  "id": "hello-api",
+  "name": "Hello API",
+  "environment": {
+    "variables": {}
+  },
   "clientProfiles": [
     {
       "id": "api",
       "baseUrl": "http://127.0.0.1:8080",
       "timeoutMs": 10000,
-      "headers": { "accept": "application/json" }
+      "headers": {
+        "accept": "application/json"
+      }
     }
   ],
   "identities": [],
   "groups": [
     {
-      "id": "buyers",
+      "id": "visitors",
       "clientProfileId": "api",
-      "count": 2,
-      "identityAssignment": { "mode": "shared", "identityId": null }
+      "identityAssignment": {
+        "mode": "shared",
+        "identityId": null
+      },
+      "executor": {
+        "kind": "once"
+      },
+      "lifecycle": {
+        "iteration": {
+          "workflowId": "main",
+          "inputs": {}
+        }
+      }
     }
   ],
-  "workflow": {
-    "nodes": [
-      { "id": "start", "type": "start" },
-      {
-        "id": "ready",
-        "type": "barrier",
-        "config": { "name": "ready", "participants": 2, "timeoutMs": 5000 }
-      },
-      {
-        "id": "buy",
-        "type": "http",
-        "config": {
-          "method": "POST",
-          "path": "/items/${itemId}/purchase",
-          "body": { "kind": "json", "value": {} }
-        }
-      },
-      { "id": "end", "type": "end" }
-    ],
-    "edges": [
-      { "from": "start", "to": "ready" },
-      { "from": "ready", "to": "buy" },
-      { "from": "buy", "to": "end" }
-    ]
-  },
   "assertions": [],
-  "layout": {
-    "positions": {
-      "start": { "x": 100, "y": 180 },
-      "ready": { "x": 320, "y": 180 },
-      "buy": { "x": 540, "y": 180 },
-      "end": { "x": 760, "y": 180 }
+  "workflows": [
+    {
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "health",
+          "type": "http",
+          "config": {
+            "method": "GET",
+            "path": "/health"
+          }
+        },
+        {
+          "id": "end",
+          "type": "end"
+        }
+      ],
+      "edges": [
+        {
+          "from": "start",
+          "to": "health",
+          "id": "edge-0"
+        },
+        {
+          "from": "health",
+          "to": "end",
+          "id": "edge-1"
+        }
+      ],
+      "id": "main",
+      "name": "Hello API",
+      "inputs": {},
+      "outputs": {},
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "health": {
+            "x": 340,
+            "y": 160
+          },
+          "end": {
+            "x": 600,
+            "y": 160
+          }
+        }
+      }
     }
-  }
+  ]
 }
 ```
 
@@ -357,14 +429,14 @@ Persist a **versioned JSON document**, not React Flow's runtime state. Use `sche
 
 - `schemaVersion` is mandatory; reject unsupported versions with an actionable error.
 - IDs are stable and unique within their respective collections. All references must resolve.
-- `workflow.nodes`/`edges` describe execution; `layout.positions` is optional and never changes runtime behavior.
+- `workflows[].nodes`/`edges` describe execution; workflow-local `layout.positions` is optional and never changes runtime behavior.
 - Use typed serde enums for node variants (`start`, `end`, `http`, later `extract`, `setSession`, `barrier`, `assert`, `fork`, `join`, `loop`). Keep v0.1 types deliberately small.
 - Reject invalid graph structure: missing start/end, unreachable nodes, invalid edges, unsupported branching, unbounded cycles, duplicate IDs, invalid participant counts, missing profiles, negative/zero timeouts.
-- **M1–M2 support exactly one start, one or more sequential HTTP nodes, and exactly one end.** Reject branching, joins, cycles, and disconnected nodes. The barrier example above is a future M5 target; maintain a separate `hello-api.json` compatible with early milestones.
-- **Accepted M1 schema scope:** support a small typed contract with empty `identities` and `assertions`, and anonymous `shared` identity assignment (`identityId: null`). Reject unsupported future configurations explicitly; do not accept uninterpreted executable data. Future configurations require an explicit version/capability compatibility policy and must never silently change existing scenario meaning.
+- **M1–M2 support exactly one start, one or more sequential HTTP nodes, and exactly one end.** Reject branching, joins, cycles, and disconnected nodes. Barriers remain a future M5 capability.
+- **Historical M1 schema scope (superseded by the current V2 contract):** support a small typed contract with empty `identities` and `assertions`, and anonymous `shared` identity assignment (`identityId: null`). Reject unsupported future configurations explicitly; do not accept uninterpreted executable data. Future configurations require an explicit version/capability compatibility policy and must never silently change existing scenario meaning.
 - Detect `.json`, `.yaml`, and `.yml` extensions, supporting the recommended `.interl.*` suffixes and the documented `hello-api.json`. Reject other extensions without content sniffing.
 - Template resolution is explicitly scoped and must never evaluate arbitrary JavaScript. Define a narrow `${variable}` interpolation grammar and deterministic precedence: step → virtual user → scenario environment. Secret values must not be serialized into run snapshots or reports.
-- Versioned migrations should be explicit when schema changes; do not silently reinterpret existing scenarios.
+- Only schema v2 is accepted; reject v1 with an unsupported-version diagnostic. Future released-format migrations must be explicit.
 
 ## 6. Compiler and runtime architecture
 
@@ -375,7 +447,7 @@ YAML / JSON file / React editor
 interl-core: parse -> validate -> compile
          |
          v
-Immutable ExecutionPlan + resolved run config
+Immutable Program + resolved run config
          |
          v
 interl-engine: RunCoordinator
@@ -388,7 +460,31 @@ interl-engine: RunCoordinator
          +---- barrier registry / shared state (later milestone)
 ```
 
-**Lifecycle:** load → parse → validate → resolve secrets → compile → snapshot config (redacted) → instantiate users → execute → evaluate assertions → finalize report.
+**Preparation:** load → parse → validate/compile → preflight → resolve only consumed secret references at accepted start → capture immutable run configuration (redacted for observation) → execute. Compilation/preflight do not read secret values or perform HTTP.
+
+Secret references are resolved into immutable run inputs at accepted start; per-VU authentication is a separate network operation using the assigned captured credentials. Reusable login must not trigger frontend lookup or repeated environment reads.
+
+**Target execution lifecycle:**
+
+```text
+Scenario setup — once per run, shared fixture preparation
+    ↓
+Workload scheduler creates a VU
+    ↓
+Assign identity and construct its isolated transport/session
+    ↓
+VU initialization — authenticate this VU
+    ↓
+Iteration workflow — once in M3.5; scheduler-controlled repetition in M4
+    ↓
+VU cleanup — optional logout/resource cleanup
+    ↓
+Scenario teardown — once per run, after all VUs stop
+```
+
+Scenario setup/teardown is distinct from per-VU initialization/cleanup. Global hooks exchange explicitly scoped fixture data/references, not mutable clients or implicit authenticated sessions. M3.5 implements single-VU initialization/iteration/cleanup and reusable calls; global setup/teardown execution and multi-group scheduling are M4 work. Cleanup must have bounded time and defined behavior after initialization failure, iteration failure, cancellation, and graceful stop; cleanup errors cannot erase the primary failure. Detailed hook/stop contracts are pinned before their implementation.
+
+Retain a VU's authenticated session across iterations by default. An explicit per-iteration reset/initialization policy can model login traffic; M4 must define it separately from ordinary repetition. No hidden refresh, retry, or reauthentication is implied. A newly instantiated VU receives new runtime state; changing load never silently changes an existing VU's identity.
 
 The Rust engine owns execution order, concurrency, coordination, and result status. React Flow owns only node placement and editing. A transport abstraction should be small and enable later TLS identity swaps; do not build a plugin framework.
 
@@ -404,8 +500,8 @@ The Rust engine owns execution order, concurrency, coordination, and result stat
 
 ### Session and authentication semantics
 
-- Each user owns its own cookie store, session header overrides, token variables, and active transport handle.
-- Auth workflow: HTTP login → extract token from response → update user session header → subsequent authenticated requests.
+- Each VU owns its own cookie store, session header overrides, token variables, and active transport handle. Its assigned identity remains stable; no mutable session state is shared between different VUs or workload groups. A subprocess intentionally uses its own caller VU's session.
+- Auth workflow: HTTP login → extract token from response → update user session header → subsequent authenticated requests. Reusable login runs in the caller's per-VU initialization context; cookie-only auth uses the same owned jar. Authentication happens for each newly started VU, including those created during a ramp.
 - Store secrets as references (environment variables / OS keychain in later phases), not literal plaintext in scenario JSON. Redact authorization, cookies, passwords, tokens, private keys, and configured sensitive fields in logs/events/exports.
 - mTLS identity is selected at TLS handshake. To rotate a certificate, create a **new reqwest Client** with the new identity, atomically replace that user's active transport for future requests, and allow in-flight requests to finish using the previous client. Record a non-secret certificate fingerprint. Never imply swapping a header rotates mTLS identity.
 
@@ -422,6 +518,8 @@ The Rust engine owns execution order, concurrency, coordination, and result stat
 ## 8. Events, reports, and correctness
 
 Every event carries at least: `runId`, `sequence`, `elapsedNs` (monotonic relative to run start), `timestamp` (optional wall-clock UTC), `userId` (if applicable), `nodeId` (if applicable), `type`, and a typed redacted payload.
+
+M3.5 observations must additionally distinguish workload group, iteration, workflow, invocation, and lifecycle stage wherever applicable. The same local node ID in different workflows or repeated calls must not collide in traces, diagnostics, selection, or token projection. Define exact field/version changes in the M3.5 contract before implementation; this does not retroactively reinterpret the historical report v2 wire format. Phase 1 emits version 3 with explicit invocation context. Sensitive mapped outputs remain omitted/redacted.
 
 Initial event taxonomy:
 
@@ -488,6 +586,20 @@ Stream `RunEvent` through a Tauri Channel (preferred for high-frequency streamin
 
 Editor changes are separate from the immutable snapshot captured at run start. Display unsaved changes and validation errors; don't mutate an active run when editing the canvas.
 
+### Scenario authoring and execution modes (M3.5)
+
+Add a Camunda-style modeling workflow using the existing React Flow setup: a palette of typed nodes, contextual add/connect/delete actions, arrowheads showing connection direction, and configuration through the collapsible inspector. This is an interaction reference, not BPMN file-format compatibility or adoption of Camunda engine semantics.
+
+**Edit mode** creates/modifies scenarios, reusable workflows, lifecycle bindings, connections, client profiles, identity references, workload groups, and node inputs/outputs. The explorer distinguishes definitions from runtime users; workflow selectors and expandable subprocesses expose reusable authentication. M3.5 enables only one executing group/VU with one iteration; unsupported load executors are not presented as runnable. HTTP configuration includes method/path/headers/body/timeout and explicit response extraction/output references. Validation connects Rust field/node diagnostics to the inspector and canvas. Provide dirty-state handling, undo/redo, and save/load without serializing React Flow runtime objects or resolved secrets.
+
+**Run mode** displays the immutable captured scenario, workload/workflow bindings, and layout, with execution markers (visual “tokens”) driven by engine events. Show active/completed/failed/cancelled nodes and observed edge traversal; the canvas is read-only. Tokens represent workflow progress, never authentication values. Correlate progress with group/VU/iteration/workflow/invocation/node identity so repeated subprocesses do not collide. M3.5 shows one VU; M4 adds aggregate group counts and a selected-VU view rather than rendering every VU as a DOM token. Preserve invocation paths in traces and safe input/output inspection. Preserve safe trace inspection, Cancel/export, reduced-motion support, and separation from edits made after run start. Edit/Run workspace modes coexist with bottom Validation/Run detail tabs.
+
+Branching is an explicit requested capability. The user-accepted allocation is exclusive conditional split/merge in M3.5, with parallel fork/join, barriers, and cross-user coordination in M5; detailed gateway/predicate contracts must be reviewed before implementation. Current Rust remains linear-only until an approved shared schema/compiler/runtime extension exists. Conditions stay read-only and bounded; explicit gateway operations own routing. Specify gateway semantics, branch-local dataflow, condition limits, and safe route observations before implementing controls. Do not treat drawing two arrows as implemented branching or enable unsupported configurations for Run.
+
+M3.5 uses scenario schema v2 and report/live protocol v3 as specified in [ADR 0002](docs/adr/0002-editor-and-routing.md). The accepted pre-Phase-2 amendment removes V1 loading/migration entirely. Phase 1 provides scalar workflow ports, bounded calls/cleanup, and generated graph keys. The current desktop displays the iteration workflow from the complete V2 document. Exclusive predicates/routing remain gated until Phase 5 and full editor behavior remains later-phase work; see [progress](docs/milestone-3.5.md).
+
+See the [M3.5 implementation plan](plans/milestone-3.5.md) for dependency order, acceptance criteria, and remaining decisions. M3.5 Phase 1 shared foundation is implemented; the visual editor and token projection are not implemented yet.
+
 ## 11. Milestones and acceptance criteria
 
 | Milestone                 | Deliverable                                                                      | Acceptance                                                             |
@@ -495,8 +607,9 @@ Editor changes are separate from the immutable snapshot captured at run start. D
 | **M1 — Foundation**       | Workspace, desktop scaffold, scenario models/validator, CLI `validate`, canvas   | CLI and Tauri validate the same `hello-api.json`; unit tests pass      |
 | **M2 — Single-user HTTP** | HTTP adapter, sequential engine, event channel, `interl run`, response inspector | GET/POST execute in desktop and CLI; errors/timeouts/cancel observable |
 | **M3 — Stateful auth**    | Identity refs, login/extract/session updates, one user-owned session              | Single-user bearer/cookie auth; redacted CLI/desktop reports               |
-| **M4 — Virtual users**    | Groups, N users, identity assignment, concurrency limits                         | N independent users execute; bounded resources/cancellation; two-user auth isolation proof        |
-| **M5 — Synchronization**  | Barriers, structured branching, cross-user assertions                            | Controlled double-booking test catches broken invariant                |
+| **M3.5 — Scenario editor** | Reusable workflow/lifecycle authoring, typed inspectors/validation, directed canvas, exclusive branches, Edit/Run tokens; one VU/iteration | Create/edit/save a scenario, run its immutable snapshot, and visualize actual progress; exclusive branch behavior matches the approved Rust contract |
+| **M4 — Virtual users**    | Multiple workload groups, fixed/ramping VUs, iteration scheduling, identity assignment, global hooks, bounded concurrency                         | Independent groups ramp correctly; per-VU auth/session isolation, graceful stop, bounded resources; two-user auth isolation proof        |
+| **M5 — Synchronization**  | Barriers, parallel fork/join, cross-user assertions; exclusive branching delivered in M3.5                            | Controlled double-booking test catches broken invariant                |
 | **M6 — Network/TLS**      | mTLS identity lifecycle, explicit retry policies, fault handling                 | Rotation uses new transport; in-flight requests remain safe            |
 | **M7 — Observability**    | Timeline filters, correlations, reports, repeat runs                             | Reproducible scenario inputs and redacted comparable traces            |
 | **M8 — CI/distribution**  | CLI exit codes, packaged app, docs, security hardening                           | macOS app and headless CI run from same scenario                       |
@@ -568,7 +681,7 @@ M3 scope follows the [accepted authentication ADR](docs/adr/0001-m3-auth-foundat
 ## 14. Decisions to revisit later
 
 - M3 uses environment references only; revisit OS keychain support in a later milestone.
-- M3 emits report version 2; revisit artifact retention policy in a later milestone.
+- M3 introduced report v2; M3.5 Phase 1 emits report/live protocol v3. Revisit artifact retention policy in a later milestone.
 - Barrier participation across multiple groups, failure propagation, and partial-arrival semantics.
 - Precise assertion DSL; prefer structured typed assertions over arbitrary expressions.
 - Transport factory interface for mTLS certificate rotation.

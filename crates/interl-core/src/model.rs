@@ -1,25 +1,9 @@
-use crate::{ExtractConfig, Identity, SetSessionConfig, TemplateValue};
+use crate::TemplateValue;
 use serde::de::{self, SeqAccess, Visitor};
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::collections::BTreeMap;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ScenarioDocument {
-    pub schema_version: u32,
-    pub id: String,
-    pub name: String,
-    pub environment: Environment,
-    pub client_profiles: Vec<ClientProfile>,
-    pub identities: Vec<Identity>,
-    pub groups: Vec<UserGroup>,
-    pub workflow: Workflow,
-    pub assertions: EmptyDeclarations,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub layout: Option<Layout>,
-}
 
 /// Reserved declarations have no accepted nonempty representation in the current schema.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -70,79 +54,12 @@ pub struct ClientProfile {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct UserGroup {
-    pub id: String,
-    pub client_profile_id: String,
-    pub count: u32,
-    pub identity_assignment: IdentityAssignment,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "camelCase", deny_unknown_fields)]
 pub enum IdentityAssignment {
     Shared {
         #[serde(rename = "identityId")]
         identity_id: Option<String>,
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Workflow {
-    pub nodes: Vec<WorkflowNode>,
-    pub edges: Vec<WorkflowEdge>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
-pub enum WorkflowNode {
-    Start {
-        id: String,
-    },
-    Http {
-        id: String,
-        config: HttpConfig,
-    },
-    Extract {
-        id: String,
-        config: ExtractConfig,
-    },
-    SetSession {
-        id: String,
-        config: SetSessionConfig,
-    },
-    End {
-        id: String,
-    },
-}
-
-impl WorkflowNode {
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Start { id }
-            | Self::Http { id, .. }
-            | Self::Extract { id, .. }
-            | Self::SetSession { id, .. }
-            | Self::End { id } => id,
-        }
-    }
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::Start { .. } => "start",
-            Self::Http { .. } => "http",
-            Self::Extract { .. } => "extract",
-            Self::SetSession { .. } => "setSession",
-            Self::End { .. } => "end",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WorkflowEdge {
-    pub from: String,
-    pub to: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -9,6 +9,7 @@ import {
   type NodeProps,
   type NodeTypes,
 } from '@xyflow/react';
+import { iterationWorkflow } from '../../lib/scenario-types';
 import { nodePresentation } from './node-presentation';
 import { useEffect, useMemo } from 'react';
 import { toFlowEdges, toFlowNodes, type ScenarioFlowNode } from './adapters';
@@ -20,12 +21,19 @@ import { useRunStore } from '../runs/store';
 function ScenarioNode({ data, selected }: NodeProps<ScenarioFlowNode>) {
   const node = data.node;
   const scenarioId = useScenarioStore((s) => s.document?.id);
+  const workflowId = useScenarioStore((s) => (s.document ? iterationWorkflow(s.document)?.id : undefined));
   const runStatus = useRunStore((s) => {
     if (s.scenarioId !== scenarioId) return null;
+    const started = s.events.find((event) => event.type === 'run.started');
+    const workflowKey = started?.payload.graph.workflows.find((workflow) => workflow.id === workflowId)?.key;
+    if (!workflowKey) return null;
     const last = [...s.events]
       .reverse()
       .find(
-        (event) => event.nodeId === node.id && ['step.started', 'step.finished', 'step.failed'].includes(event.type)
+        (event) =>
+          event.context.workflowKey === workflowKey &&
+          event.nodeId === node.id &&
+          ['step.started', 'step.finished', 'step.failed'].includes(event.type)
       );
     return last?.type === 'step.started'
       ? 'Running'
@@ -51,6 +59,7 @@ function ScenarioNode({ data, selected }: NodeProps<ScenarioFlowNode>) {
           <code>{node.config.path}</code>
         </div>
       )}
+      {node.type === 'call' && <p className="auth-node-summary">{node.config.workflowId}</p>}
       {node.type === 'extract' && (
         <p className="auth-node-summary">
           {node.config.sourceNodeId} → {node.config.output}

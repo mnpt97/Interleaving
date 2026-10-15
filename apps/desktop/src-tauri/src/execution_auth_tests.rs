@@ -61,7 +61,13 @@ fn safe(value: &Value) {
 async fn complete(state: &RunRegistry, handle: RunHandle) -> RunReport {
     let mut live = Vec::new();
     let (id, result) = forward_events(handle, |event| {
-        live.push(serde_json::to_value(RunMessage::Event { event }).unwrap());
+        live.push(
+            serde_json::to_value(RunMessage::Event {
+                protocol_version: 3,
+                event: Box::new(event),
+            })
+            .unwrap(),
+        );
         true
     })
     .await;
@@ -78,11 +84,12 @@ async fn complete(state: &RunRegistry, handle: RunHandle) -> RunReport {
             .clone()
     );
     let finished = serde_json::to_value(RunMessage::Finished {
+        protocol_version: 3,
         report: Box::new(report.clone()),
     })
     .unwrap();
     assert_eq!(finished["kind"], "finished");
-    assert_eq!(finished["report"]["reportVersion"], 2);
+    assert_eq!(finished["report"]["reportVersion"], 3);
     safe(&finished);
     safe(&serde_json::to_value(live).unwrap());
     report
@@ -410,7 +417,7 @@ async fn report_export_checks_ids_extensions_and_writes_safe_json() {
         1
     );
     assert!(value["snapshot"]["identities"][0]["credentials"]["password"].is_object());
-    assert_eq!(value["reportVersion"], json!(2));
+    assert_eq!(value["reportVersion"], json!(3));
 }
 
 #[tokio::test]
@@ -480,4 +487,59 @@ async fn window_cleanup_cancels_inflight_auth_and_preserves_exportable_partial_r
     assert_eq!(report.summary.responses, 0);
     assert!(state.0.lock().unwrap().active.is_none());
     safe(&serde_json::from_slice(&state.report_bytes(&report.run_id).unwrap()).unwrap());
+}
+
+#[tokio::test]
+async fn reusable_v2_adapter_formats_and_exports_match_headless() {
+    let server = support::TestServer::start().await;
+    let state = RunRegistry::default();
+    let mut reports = Vec::new();
+    for (source, format) in [
+        (
+            include_str!("../../../../scenarios/examples/reusable-auth.interl.json"),
+            ScenarioFormat::Json,
+        ),
+        (
+            include_str!("../../../../scenarios/examples/reusable-auth.interl.yaml"),
+            ScenarioFormat::Yaml,
+        ),
+    ] {
+        let source = source.replace("http://127.0.0.1:8080", &server.base_url);
+        let handle = state
+            .start(|| {
+                prepare_with_provider(&source, format, RunOptions::default(), &Provider::default())
+            })
+            .unwrap();
+        let report = complete(&state, handle).await;
+        assert_eq!(report.status, RunStatus::Passed);
+        assert_eq!(report.summary.responses, 2);
+        assert_eq!(
+            report
+                .events
+                .iter()
+                .filter_map(|e| match e.event {
+                    interl_engine::EventKind::ResponseReceived { status, .. } => Some(status),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            [200, 200]
+        );
+        let bytes = state.report_bytes(&report.run_id).unwrap();
+        safe(&serde_json::from_slice(&bytes).unwrap());
+        let doc = interl_core::parse_document(&source, format).unwrap();
+        let mut headless = PreparedRun::new_with_secret_provider(
+            &doc,
+            RunOptions::default(),
+            &Provider::default(),
+        )
+        .unwrap()
+        .start(CancellationToken::new());
+        while headless.events.recv().await.is_some() {}
+        assert_eq!(
+            normalized(&report),
+            normalized(&headless.task.await.unwrap())
+        );
+        reports.push(normalized(&report));
+    }
+    assert_eq!(reports[0], reports[1]);
 }

@@ -1,5 +1,7 @@
+mod support;
 use interl_core::*;
 use serde_json::{json, Value};
+use support::{signature, steps};
 
 const JSON: &str = include_str!("../../../scenarios/examples/auth-login.interl.json");
 const YAML: &str = include_str!("../../../scenarios/examples/auth-login.interl.yaml");
@@ -30,15 +32,15 @@ fn auth_formats_have_equal_typed_models_and_deterministic_round_trips() {
         parse_scenario(&serialized, ScenarioFormat::Json).unwrap()
     );
     assert_eq!(
-        json.workflow
+        json.workflows[0]
             .nodes
             .iter()
             .map(WorkflowNode::kind)
             .collect::<Vec<_>>(),
         ["start", "http", "extract", "setSession", "http", "end"]
     );
-    assert_eq!(json.workflow.nodes[2].id(), "extract-token");
-    assert_eq!(json.workflow.nodes[3].id(), "apply-token");
+    assert_eq!(json.workflows[0].nodes[2].id(), "extract-token");
+    assert_eq!(json.workflows[0].nodes[3].id(), "apply-token");
 }
 
 #[test]
@@ -64,9 +66,10 @@ fn identity_fields_require_explicit_environment_references() {
         assert!(!error.message.contains("inline-password"));
     }
     let yaml = YAML.replace(
-        "{ source: env, name: INTERL_ALICE_PASSWORD }",
-        "inline-password",
+        "    password:\n      source: env\n      name: INTERL_ALICE_PASSWORD",
+        "    password: inline-password",
     );
+    assert_ne!(yaml, YAML);
     assert_eq!(
         parse_scenario(&yaml, ScenarioFormat::Yaml)
             .unwrap_err()
@@ -81,12 +84,12 @@ fn unknown_auth_fields_and_future_modes_are_rejected() {
     for path in [
         "/identities/0",
         "/identities/0/credentials/password",
-        "/workflow/nodes/1/config/body",
-        "/workflow/nodes/1/config/body/fields/password",
-        "/workflow/nodes/2",
-        "/workflow/nodes/2/config",
-        "/workflow/nodes/3/config",
-        "/workflow/nodes/3/config/setHeaders/authorization",
+        "/workflows/0/nodes/1/config/body",
+        "/workflows/0/nodes/1/config/body/fields/password",
+        "/workflows/0/nodes/2",
+        "/workflows/0/nodes/2/config",
+        "/workflows/0/nodes/3/config",
+        "/workflows/0/nodes/3/config/setHeaders/authorization",
     ] {
         let mut v = value();
         v.pointer_mut(path)
@@ -128,12 +131,13 @@ fn explicit_templates_compose_objects_arrays_and_output_references() {
         "nested": {"source":"object","fields":{"list":{"source":"array","items":[{"source":"literal","value":false},{"source":"literal","value":null},{"source":"literal","value":3}]}}},
         "literalObject": {"source":"literal","value":{"source":"identity","field":"password","text":"${password}"}}
     });
-    v["workflow"]["nodes"][1]["config"]["body"] = json!({"kind":"jsonTemplate","fields":fields});
+    v["workflows"][0]["nodes"][1]["config"]["body"] =
+        json!({"kind":"jsonTemplate","fields":fields});
     let parsed = parse_scenario(&v.to_string(), ScenarioFormat::Json).unwrap();
-    let WorkflowNode::Http { config, .. } = &parsed.workflow.nodes[1] else {
+    let WorkflowNode::Http { config, .. } = &parsed.workflows[0].nodes[1] else {
         panic!()
     };
-    let Some(RequestBody::JsonTemplate { fields }) = &config.body else {
+    let Some(ProgramBody::JsonTemplate { fields }) = &config.body else {
         panic!()
     };
     assert!(matches!(&fields["nested"], TemplateValue::Object { .. }));
@@ -144,8 +148,8 @@ fn explicit_templates_compose_objects_arrays_and_output_references() {
         matches!(&fields["literalObject"], TemplateValue::Literal { value } if value["text"] == "${password}")
     );
     assert_eq!(
-        serde_json::to_value(&parsed).unwrap()["workflow"]["nodes"][1]["config"]["body"],
-        v["workflow"]["nodes"][1]["config"]["body"]
+        serde_json::to_value(&parsed).unwrap()["workflows"][0]["nodes"][1]["config"]["body"],
+        v["workflows"][0]["nodes"][1]["config"]["body"]
     );
     // This is a shape test; the forward output reference is deliberately not
     // claimed valid. Phase 2 owns ordering and dataflow checks.
@@ -162,7 +166,7 @@ fn malformed_templates_and_structured_header_sources_are_rejected() {
         json!({"source":"array","items":{}}),
     ] {
         let mut v = value();
-        v["workflow"]["nodes"][1]["config"]["body"]["fields"]["password"] = bad;
+        v["workflows"][0]["nodes"][1]["config"]["body"]["fields"]["password"] = bad;
         assert!(parse_scenario(&v.to_string(), ScenarioFormat::Json).is_err());
     }
     for bad in [
@@ -173,7 +177,7 @@ fn malformed_templates_and_structured_header_sources_are_rejected() {
         json!({"source":"identity","field":"token","prefix":false}),
     ] {
         let mut v = value();
-        v["workflow"]["nodes"][3]["config"]["setHeaders"]["authorization"] = bad;
+        v["workflows"][0]["nodes"][3]["config"]["setHeaders"]["authorization"] = bad;
         assert!(parse_scenario(&v.to_string(), ScenarioFormat::Json).is_err());
     }
 }
@@ -206,9 +210,9 @@ fn session_header_sources_and_operation_defaults_are_typed() {
 fn extraction_strings_are_preserved_before_semantic_validation() {
     let expression = "  response.body.accessToken + unsupported()\n";
     let mut v = value();
-    v["workflow"]["nodes"][2]["config"]["expression"] = json!(expression);
+    v["workflows"][0]["nodes"][2]["config"]["expression"] = json!(expression);
     let parsed = parse_scenario(&v.to_string(), ScenarioFormat::Json).unwrap();
-    let WorkflowNode::Extract { config, .. } = &parsed.workflow.nodes[2] else {
+    let WorkflowNode::Extract { config, .. } = &parsed.workflows[0].nodes[2] else {
         panic!()
     };
     assert_eq!(config.expression, expression);
@@ -226,10 +230,10 @@ fn previous_literal_bodies_are_never_reinterpreted_as_references() {
         json!({"kind":"text","value":"${password}"}),
     ] {
         let mut v = value();
-        v["workflow"]["nodes"][1]["config"]["body"] = body.clone();
+        v["workflows"][0]["nodes"][1]["config"]["body"] = body.clone();
         let parsed = parse_scenario(&v.to_string(), ScenarioFormat::Json).unwrap();
         assert_eq!(
-            serde_json::to_value(parsed).unwrap()["workflow"]["nodes"][1]["config"]["body"],
+            serde_json::to_value(parsed).unwrap()["workflows"][0]["nodes"][1]["config"]["body"],
             body
         );
     }
@@ -238,9 +242,10 @@ fn previous_literal_bodies_are_never_reinterpreted_as_references() {
 #[test]
 fn auth_duplicate_keys_and_parser_resource_limits_still_apply() {
     let source = JSON.replace(
-        "\"source\": \"env\", \"name\": \"INTERL_ALICE_PASSWORD\"",
-        "\"source\": \"env\", \"name\": \"FIRST\", \"name\": \"SECOND\"",
+        "\"name\": \"INTERL_ALICE_PASSWORD\"",
+        "\"name\": \"FIRST\", \"name\": \"SECOND\"",
     );
+    assert_ne!(source, JSON);
     assert_eq!(
         parse_scenario(&source, ScenarioFormat::Json)
             .unwrap_err()
@@ -249,9 +254,10 @@ fn auth_duplicate_keys_and_parser_resource_limits_still_apply() {
         "duplicateKey"
     );
     let source = YAML.replace(
-        "source: env, name: INTERL_ALICE_PASSWORD",
-        "source: env, name: FIRST, name: SECOND",
+        "      name: INTERL_ALICE_PASSWORD",
+        "      name: FIRST\n      name: SECOND",
     );
+    assert_ne!(source, YAML);
     assert_eq!(
         parse_scenario(&source, ScenarioFormat::Yaml)
             .unwrap_err()
@@ -278,7 +284,7 @@ fn typed_auth_models_now_validate_compile_and_serialize() {
     let parsed = document();
     validate_scenario(&parsed).unwrap();
     let plan = compile_scenario(&parsed).unwrap();
-    assert_eq!(plan.steps().len(), 6);
+    assert_eq!(steps(&plan).len(), 6);
     let serialized = serialize_scenario(&parsed).unwrap();
     assert_eq!(
         parsed,
@@ -304,9 +310,12 @@ fn cookie_examples_compile_equally_and_keep_only_credential_references() {
     .unwrap();
     assert_eq!(json, yaml);
     let plan = compile_scenario(&json).unwrap();
-    assert_eq!(plan, compile_scenario(&yaml).unwrap());
     assert_eq!(
-        plan.steps()
+        signature(&plan),
+        signature(&compile_scenario(&yaml).unwrap())
+    );
+    assert_eq!(
+        steps(&plan)
             .iter()
             .map(WorkflowNode::kind)
             .collect::<Vec<_>>(),

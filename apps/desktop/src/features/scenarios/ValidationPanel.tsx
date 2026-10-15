@@ -1,3 +1,4 @@
+import { iterationWorkflow } from '../../lib/scenario-types';
 import { CheckCircle2, CircleAlert, LoaderCircle, ShieldCheck } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { desktopAvailable } from '../../lib/tauri';
@@ -5,6 +6,8 @@ import { useScenarioStore } from './store';
 
 export function ValidationPanel() {
   const diagnostics = useScenarioStore((s) => s.diagnostics);
+  const document = useScenarioStore((s) => s.document);
+  const workflowId = document ? iterationWorkflow(document)?.id : undefined;
   const status = useScenarioStore((s) => s.status);
   const select = useScenarioStore((s) => s.select);
   const busy = useScenarioStore((s) => s.busy);
@@ -32,13 +35,16 @@ export function ValidationPanel() {
             <button
               className="diagnostic"
               key={`${diagnostic.code}-${index}`}
-              onClick={() => select(diagnostic.nodeId)}
+              onClick={() =>
+                select(!diagnostic.workflowId || diagnostic.workflowId === workflowId ? diagnostic.nodeId : null)
+              }
             >
               <CircleAlert size={16} />
               <span>
                 <strong>{diagnostic.message}</strong>
                 <small>
                   {diagnostic.code} · {diagnostic.fieldPath}
+                  {diagnostic.workflowId ? ` · workflow ${diagnostic.workflowId}` : ''}
                   {diagnostic.expressionLine
                     ? ` · expression line ${diagnostic.expressionLine}, column ${diagnostic.expressionColumn}`
                     : ''}

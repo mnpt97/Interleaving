@@ -157,8 +157,8 @@ fn reference_failure(code: &'static str, name: &str) -> Diagnostic {
 mod tests {
     use super::*;
     use interl_core::{
-        compile_scenario, parse_scenario, RequestBody, ScenarioDocument, ScenarioFormat,
-        SessionHeaderValue, WorkflowNode,
+        compile_scenario, parse_scenario, ProgramBody as RequestBody, ScenarioDocument,
+        ScenarioFormat, SessionHeaderValue, WorkflowNode,
     };
     use serde_json::json;
     use std::sync::Mutex;
@@ -324,13 +324,13 @@ mod tests {
         assert!(!formatted.contains("fake-user"));
         assert!(!formatted.contains("alice"));
     }
-    fn reference_plan(count: usize, shared: bool) -> interl_core::ExecutionPlan {
+    fn reference_plan(count: usize, shared: bool) -> interl_core::Program {
         let mut doc = document();
         doc.identities[0].credentials.clear();
-        if let WorkflowNode::Http { config, .. } = &mut doc.workflow.nodes[1] {
+        if let WorkflowNode::Http { config, .. } = &mut doc.workflows[0].nodes[1] {
             config.body = Some(RequestBody::Json { value: json!({}) });
         }
-        let WorkflowNode::SetSession { config, .. } = &mut doc.workflow.nodes[3] else {
+        let WorkflowNode::SetSession { config, .. } = &mut doc.workflows[0].nodes[3] else {
             panic!()
         };
         config.set_headers.clear();

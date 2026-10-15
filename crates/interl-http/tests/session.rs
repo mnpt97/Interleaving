@@ -148,10 +148,11 @@ fn rejects_bad_templates_and_limits_without_network() {
     ] {
         assert!(session.prepare(&config(path), &Default::default()).is_err());
     }
-    let WorkflowNode::Http { config, .. } = &document.workflow.nodes[1] else {
+    let WorkflowNode::Http { config, .. } = &document.workflows[0].nodes[1] else {
         panic!()
     };
-    let mut bad = config.clone();
+    let mut bad: HttpConfig =
+        serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
     bad.timeout_ms = Some(u64::MAX);
     assert!(session.prepare(&bad, &Default::default()).is_err());
     bad.timeout_ms = None;

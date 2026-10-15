@@ -1,3 +1,4 @@
+import { emptyEventContext } from '../../lib/run-types';
 import { useState, type ComponentType } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -72,6 +73,20 @@ it('shows auth step failure state only for the matching scenario', () => {
       {
         runId: 'run',
         sequence: 1,
+        context: emptyEventContext,
+        elapsedNs: 0,
+        userId: null,
+        nodeId: null,
+        type: 'run.started',
+        payload: {
+          scenarioId: 'auth-login',
+          graph: { groups: [], workflows: [{ key: 'wf:0', id: 'main', name: 'Main', nodes: [], edges: [] }] },
+        },
+      },
+      {
+        runId: 'run',
+        sequence: 2,
+        context: { ...emptyEventContext, workflowKey: 'wf:0' },
         elapsedNs: 1,
         userId: 'user:1',
         nodeId: 'extract-token',

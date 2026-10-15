@@ -17,11 +17,13 @@ fn document() -> ScenarioDocument {
 }
 fn plan(expression: &str) -> AuthPlan {
     let mut doc = document();
-    let WorkflowNode::Extract { config, .. } = &mut doc.workflow.nodes[2] else {
+    let WorkflowNode::Extract { config, .. } = &mut doc.workflows[0].nodes[2] else {
         panic!()
     };
     config.expression = expression.into();
-    compile_scenario(&doc).unwrap().auth().clone()
+    compile_scenario(&doc).unwrap().workflows()[0]
+        .auth()
+        .clone()
 }
 fn state(expression: &str) -> ExtractionState {
     ExtractionState::new(&plan(expression), MAX_RESPONSE_BYTES).unwrap()
@@ -48,16 +50,16 @@ fn padded(size: usize) -> Vec<u8> {
 }
 fn many_document(count: usize) -> ScenarioDocument {
     let mut doc = document();
-    let end = doc.workflow.nodes.last().unwrap().clone();
-    let mut apply = doc.workflow.nodes[3].clone();
+    let end = doc.workflows[0].nodes.last().unwrap().clone();
+    let mut apply = doc.workflows[0].nodes[3].clone();
     let WorkflowNode::SetSession { config, .. } = &mut apply else {
         panic!()
     };
     config.set_headers.clear();
-    doc.workflow.nodes.truncate(2);
+    doc.workflows[0].nodes.truncate(2);
     for index in 0..count {
         let id = format!("extract-{index}");
-        doc.workflow.nodes.push(WorkflowNode::Extract {
+        doc.workflows[0].nodes.push(WorkflowNode::Extract {
             id: id.clone(),
             config: ExtractConfig {
                 source_node_id: "login".into(),
@@ -74,17 +76,19 @@ fn many_document(count: usize) -> ScenarioDocument {
             },
         );
     }
-    doc.workflow.nodes.extend([apply, end]);
-    doc.workflow.edges = doc
-        .workflow
+    doc.workflows[0].nodes.extend([apply, end]);
+    doc.workflows[0].edges = doc.workflows[0]
         .nodes
         .windows(2)
         .map(|nodes| WorkflowEdge {
+            id: format!("{}-{}", nodes[0].id(), nodes[1].id()),
+            condition: None,
+            is_default: None,
             from: nodes[0].id().into(),
             to: nodes[1].id().into(),
         })
         .collect();
-    doc.layout = None;
+    doc.workflows[0].layout = None;
     doc
 }
 
@@ -101,12 +105,13 @@ fn formats_compile_to_the_same_read_only_nested_lookup() {
     let bytes =
         br#"{"nested":{"token":"env(SECRET) ${untouched}"},"ignored":"private-marker"}"#.to_vec();
     for doc in &mut documents {
-        let WorkflowNode::Extract { config, .. } = &mut doc.workflow.nodes[2] else {
+        let WorkflowNode::Extract { config, .. } = &mut doc.workflows[0].nodes[2] else {
             panic!()
         };
         config.expression = " response . body . nested . token \n".into();
         let compiled = compile_scenario(doc).unwrap();
-        let mut state = ExtractionState::new(compiled.auth(), MAX_RESPONSE_BYTES).unwrap();
+        let mut state =
+            ExtractionState::new(compiled.workflows()[0].auth(), MAX_RESPONSE_BYTES).unwrap();
         put(&mut state, bytes.clone());
         assert_eq!(
             state
@@ -145,7 +150,7 @@ fn unsupported_feel_cannot_become_a_runtime_program() {
         "response.body.token()",
     ] {
         let mut doc = document();
-        let WorkflowNode::Extract { config, .. } = &mut doc.workflow.nodes[2] else {
+        let WorkflowNode::Extract { config, .. } = &mut doc.workflows[0].nodes[2] else {
             panic!()
         };
         config.expression = source.into();
@@ -347,27 +352,29 @@ fn response_byte_limits_and_unplanned_response_discard_are_enforced() {
 #[test]
 fn aggregate_response_admission_and_last_use_reclaim_bytes() {
     let mut doc = many_document(2);
-    let mut other = doc.workflow.nodes[1].clone();
+    let mut other = doc.workflows[0].nodes[1].clone();
     let WorkflowNode::Http { id, .. } = &mut other else {
         panic!()
     };
     *id = "other-login".into();
-    doc.workflow.nodes.insert(2, other);
-    let WorkflowNode::Extract { config, .. } = &mut doc.workflow.nodes[4] else {
+    doc.workflows[0].nodes.insert(2, other);
+    let WorkflowNode::Extract { config, .. } = &mut doc.workflows[0].nodes[4] else {
         panic!()
     };
     config.source_node_id = "other-login".into();
-    doc.workflow.edges = doc
-        .workflow
+    doc.workflows[0].edges = doc.workflows[0]
         .nodes
         .windows(2)
         .map(|nodes| WorkflowEdge {
+            id: format!("{}-{}", nodes[0].id(), nodes[1].id()),
+            condition: None,
+            is_default: None,
             from: nodes[0].id().into(),
             to: nodes[1].id().into(),
         })
         .collect();
     let plan = compile_scenario(&doc).unwrap();
-    let mut state = ExtractionState::new(plan.auth(), MAX_RESPONSE_BYTES).unwrap();
+    let mut state = ExtractionState::new(plan.workflows()[0].auth(), MAX_RESPONSE_BYTES).unwrap();
     let cancel = CancellationToken::new();
     put(&mut state, padded(MAX_RESPONSE_BYTES / 2));
     state
@@ -409,7 +416,7 @@ fn aggregate_response_admission_and_last_use_reclaim_bytes() {
 fn output_entry_limit_and_compiled_last_uses_reclaim_storage() {
     let doc = many_document(MAX_OUTPUTS + 1);
     let plan = compile_scenario(&doc).unwrap();
-    let mut state = ExtractionState::new(plan.auth(), MAX_RESPONSE_BYTES).unwrap();
+    let mut state = ExtractionState::new(plan.workflows()[0].auth(), MAX_RESPONSE_BYTES).unwrap();
     put(&mut state, br#"{"accessToken":"t"}"#.to_vec());
     let cancel = CancellationToken::new();
     for index in 0..MAX_OUTPUTS {
@@ -432,7 +439,7 @@ fn output_entry_limit_and_compiled_last_uses_reclaim_storage() {
 fn aggregate_output_bytes_and_replacement_accounting_are_bounded() {
     let doc = many_document(9);
     let plan = compile_scenario(&doc).unwrap();
-    let mut state = ExtractionState::new(plan.auth(), MAX_RESPONSE_BYTES).unwrap();
+    let mut state = ExtractionState::new(plan.workflows()[0].auth(), MAX_RESPONSE_BYTES).unwrap();
     put(
         &mut state,
         serde_json::to_vec(&json!({"accessToken":"s".repeat(MAX_VALUE_BYTES)})).unwrap(),
@@ -502,13 +509,13 @@ fn failed_or_cancelled_reextraction_cannot_reuse_stale_outputs() {
 #[test]
 fn unused_outputs_are_released_at_the_extraction_step() {
     let mut doc = document();
-    let WorkflowNode::SetSession { config, .. } = &mut doc.workflow.nodes[3] else {
+    let WorkflowNode::SetSession { config, .. } = &mut doc.workflows[0].nodes[3] else {
         panic!()
     };
     config.set_headers.clear();
     config.remove_headers.push("authorization".into());
     let plan = compile_scenario(&doc).unwrap();
-    let mut state = ExtractionState::new(plan.auth(), MAX_RESPONSE_BYTES).unwrap();
+    let mut state = ExtractionState::new(plan.workflows()[0].auth(), MAX_RESPONSE_BYTES).unwrap();
     put(&mut state, br#"{"accessToken":"token"}"#.to_vec());
     state
         .extract("extract-token", &CancellationToken::new())

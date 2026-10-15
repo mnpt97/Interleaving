@@ -111,65 +111,141 @@ impl Redactor {
         self.remember(value);
     }
 
-    /// Learn literal values, never the strings inside reference descriptors.
-    pub(crate) fn learn_document(&mut self, document: &interl_core::ScenarioDocument) {
-        use interl_core::{RequestBody, SessionHeaderValue, TemplateValue, WorkflowNode};
-        fn literal(value: &TemplateValue) -> Value {
-            match value {
-                TemplateValue::Literal { value } => value.clone(),
-                TemplateValue::Object { fields } => fields
-                    .iter()
-                    .map(|(key, value)| (key.clone(), literal(value)))
-                    .collect(),
-                TemplateValue::Array { items } => Value::Array(items.iter().map(literal).collect()),
-                _ => Value::Null,
-            }
-        }
-        let mut learning = serde_json::to_value(document).expect("scenario is serializable");
-        learning["identities"] = json!([]);
-        for (index, node) in document.workflow.nodes.iter().enumerate() {
-            match node {
-                WorkflowNode::Http { config, .. } => match &config.body {
-                    Some(RequestBody::JsonTemplate { fields }) => {
-                        learning["workflow"]["nodes"][index]["config"]["body"] = json!({"kind":"json","value": fields.iter().map(|(key, value)| (key.clone(), literal(value))).collect::<serde_json::Map<_, _>>()});
+    pub(crate) fn learn_program(&mut self, program: &interl_core::v2::Program) {
+        // Learn literal values, never reference descriptor words/field names.
+        fn walk(redactor: &mut Redactor, v: &Value) {
+            match v {
+                Value::Object(map) => {
+                    if map.get("source").and_then(Value::as_str) == Some("literal") {
+                        if let Some(v) = map.get("value") {
+                            redactor.remember_value(v);
+                        }
+                        return;
                     }
-                    Some(RequestBody::Text { value }) => self.remember(value),
-                    _ => {}
-                },
-                WorkflowNode::SetSession { config, .. } => {
-                    learning["workflow"]["nodes"][index]["config"]["setHeaders"] = Value::Object(
-                        config
-                            .set_headers
-                            .iter()
-                            .map(|(key, value)| {
-                                (
-                                    key.clone(),
-                                    match value {
-                                        SessionHeaderValue::Literal { value, prefix } => {
-                                            let rendered = format!("{prefix}{value}");
-                                            self.remember(value);
-                                            self.remember(&rendered);
-                                            json!(rendered)
-                                        }
-                                        _ => Value::Null,
-                                    },
-                                )
-                            })
-                            .collect(),
-                    );
+                    for (k, v) in map {
+                        if k == "default" || k == "prefix" {
+                            redactor.remember_value(v);
+                        }
+                        if k == "headers" {
+                            redactor.learn(v);
+                        }
+                        walk(redactor, v);
+                    }
+                    if map.get("kind").and_then(Value::as_str) == Some("text") {
+                        if let Some(v) = map.get("value") {
+                            redactor.remember_value(v);
+                        }
+                    }
+                    if map.get("kind").and_then(Value::as_str) == Some("json") {
+                        if let Some(v) = map.get("value") {
+                            redactor.learn(v);
+                        }
+                    }
+                }
+                Value::Array(a) => {
+                    for v in a {
+                        walk(redactor, v)
+                    }
                 }
                 _ => {}
             }
         }
-        self.learn(&learning);
-        for value in document.environment.variables.values() {
-            self.remember_value(value);
+        let mut v = serde_json::to_value(program.document()).expect("typed document");
+        v["identities"] = json!([]);
+        walk(self, &v);
+        for v in program.document().environment.variables.values() {
+            self.remember_value(v);
         }
-        for profile in &document.client_profiles {
+        for profile in &program.document().client_profiles {
             if let Ok(url) = Url::parse(&profile.base_url) {
                 self.learn_url(&url);
             }
         }
+    }
+    pub(crate) fn program_snapshot(&self, program: &interl_core::v2::Program) -> Value {
+        if self.exhausted {
+            return json!("[Preview omitted: redaction budget exceeded]");
+        }
+        let mut v = serde_json::to_value(program.document()).expect("typed document");
+        fn scrub(v: &mut Value) {
+            match v {
+                Value::Object(m) => {
+                    m.remove("layout");
+                    if m.get("source").and_then(Value::as_str) == Some("literal") {
+                        m.insert("value".into(), json!("[REDACTED]"));
+                        return;
+                    }
+                    if matches!(m.get("kind").and_then(Value::as_str), Some("json" | "text")) {
+                        m.insert("value".into(), json!("[Payload omitted]"));
+                    }
+                    if let Some(headers) = m.get_mut("headers").and_then(Value::as_object_mut) {
+                        for v in headers.values_mut() {
+                            *v = json!("[REDACTED]");
+                        }
+                    }
+                    for (k, v) in m {
+                        if k == "prefix" || k == "default" {
+                            *v = json!("[REDACTED]");
+                        } else {
+                            scrub(v);
+                        }
+                    }
+                }
+                Value::Array(a) => {
+                    for v in a {
+                        scrub(v)
+                    }
+                }
+                _ => {}
+            }
+        }
+        scrub(&mut v);
+        if let Some(vars) = v
+            .pointer_mut("/environment/variables")
+            .and_then(Value::as_object_mut)
+        {
+            for v in vars.values_mut() {
+                *v = json!("[REDACTED]");
+            }
+        }
+        if let Some(profiles) = v.get_mut("clientProfiles").and_then(Value::as_array_mut) {
+            for p in profiles {
+                if let Some(url) = p.get_mut("baseUrl") {
+                    *url = json!(self.url(url.as_str().unwrap_or_default()));
+                }
+            }
+        }
+        if let Some(flows) = v.get_mut("workflows").and_then(Value::as_array_mut) {
+            for w in flows {
+                if let Some(nodes) = w.get_mut("nodes").and_then(Value::as_array_mut) {
+                    for n in nodes {
+                        if let Some(path) = n.pointer_mut("/config/path") {
+                            *path = json!(self.text(
+                                path.as_str()
+                                    .unwrap_or_default()
+                                    .split('?')
+                                    .next()
+                                    .unwrap_or_default()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        fn references(r: &Redactor, v: &Value) -> Value {
+            match v {
+                Value::Object(m) => m
+                    .iter()
+                    .map(|(k, v)| (r.text(k), references(r, v)))
+                    .collect(),
+                Value::Array(a) => Value::Array(a.iter().map(|v| references(r, v)).collect()),
+                Value::String(s) => json!(r.text(s)),
+                _ => v.clone(),
+            }
+        }
+        // Values were explicitly scrubbed by their typed role. Keep public port/source
+        // descriptors even when their names contain token/password/session.
+        references(self, &v)
     }
     pub fn learn(&mut self, value: &Value) {
         match value {
@@ -345,80 +421,6 @@ impl Redactor {
     }
     pub(crate) fn omitted_body(bytes: usize, truncated: bool, reason: &str) -> Value {
         json!({"value":null,"bytes":bytes,"truncated":truncated,"omitted":true,"reason":reason})
-    }
-    pub fn snapshot(&self, document: &interl_core::ScenarioDocument) -> Value {
-        let mut snapshot = serde_json::to_value(document).expect("scenario is serializable");
-        snapshot
-            .as_object_mut()
-            .expect("scenario is an object")
-            .remove("layout");
-        if let Some(vars) = snapshot
-            .pointer_mut("/environment/variables")
-            .and_then(Value::as_object_mut)
-        {
-            for v in vars.values_mut() {
-                *v = json!(REDACTED);
-            }
-        }
-        if let Some(profiles) = snapshot
-            .get_mut("clientProfiles")
-            .and_then(Value::as_array_mut)
-        {
-            for profile in profiles {
-                if let Some(url) = profile.get_mut("baseUrl") {
-                    *url = json!(self.url(url.as_str().unwrap_or_default()));
-                }
-            }
-        }
-        if let Some(nodes) = snapshot
-            .pointer_mut("/workflow/nodes")
-            .and_then(Value::as_array_mut)
-        {
-            for node in nodes {
-                if let Some(path) = node.pointer_mut("/config/path") {
-                    let path_text = path.as_str().unwrap_or_default();
-                    *path = json!(self.text(path_text.split('?').next().unwrap_or_default()));
-                }
-                if let Some(body) = node.pointer_mut("/config/body") {
-                    if body.get("kind").and_then(Value::as_str) == Some("text") {
-                        body["value"] = json!("[Text body omitted]");
-                    }
-                }
-            }
-        }
-        let mut snapshot = self.value(&snapshot);
-        // Credential descriptors contain public references, not resolved data.
-        // Preserve them without treating names such as "password" as payloads.
-        fn references(redactor: &Redactor, value: &Value) -> Value {
-            match value {
-                Value::Object(map) => Value::Object(
-                    map.iter()
-                        .map(|(key, value)| (redactor.text(key), references(redactor, value)))
-                        .collect(),
-                ),
-                Value::Array(values) => Value::Array(
-                    values
-                        .iter()
-                        .map(|value| references(redactor, value))
-                        .collect(),
-                ),
-                Value::String(value) => json!(redactor.text(value)),
-                _ => value.clone(),
-            }
-        }
-        if !self.exhausted {
-            if let Some(object) = snapshot.as_object_mut() {
-                object.insert(
-                    "identities".into(),
-                    references(
-                        self,
-                        &serde_json::to_value(&document.identities)
-                            .expect("references are serializable"),
-                    ),
-                );
-            }
-        }
-        snapshot
     }
 }
 

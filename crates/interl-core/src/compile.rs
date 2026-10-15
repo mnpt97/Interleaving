@@ -1,4 +1,4 @@
-use crate::{CompiledExpression, ScenarioDocument, SecretReference, ValidationError, WorkflowNode};
+use crate::{CompiledExpression, SecretReference, WorkflowDefinition, WorkflowNode};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -68,64 +68,20 @@ impl CompiledExtraction {
     }
 }
 
-/// Validated workflow only. No sessions, resolved secrets, layout, or execution.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExecutionPlan {
-    schema_version: u32,
-    scenario_id: String,
-    steps: Vec<WorkflowNode>,
-    auth: AuthPlan,
-}
-
-impl ExecutionPlan {
-    pub fn schema_version(&self) -> u32 {
-        self.schema_version
-    }
-    pub fn scenario_id(&self) -> &str {
-        &self.scenario_id
-    }
-    pub fn steps(&self) -> &[WorkflowNode] {
-        &self.steps
-    }
-    pub fn auth(&self) -> &AuthPlan {
-        &self.auth
-    }
-}
-
-pub fn compile_scenario(
-    scenario: &ScenarioDocument,
-) -> Result<ExecutionPlan, Vec<ValidationError>> {
-    let auth = crate::validate::validate_and_compile_auth(scenario)?;
-    let steps = ordered_indices(scenario)
-        .into_iter()
-        .map(|index| scenario.workflow.nodes[index].clone())
-        .collect();
-    Ok(ExecutionPlan {
-        schema_version: scenario.schema_version,
-        scenario_id: scenario.id.clone(),
-        steps,
-        auth,
-    })
-}
-
 /// Caller must first validate the unique, connected, acyclic linear graph.
-pub(crate) fn ordered_indices(scenario: &ScenarioDocument) -> Vec<usize> {
-    let nodes: BTreeMap<_, _> = scenario
-        .workflow
+pub(crate) fn ordered_indices(workflow: &WorkflowDefinition) -> Vec<usize> {
+    let nodes: BTreeMap<_, _> = workflow
         .nodes
         .iter()
         .enumerate()
         .map(|(index, node)| (node.id(), index))
         .collect();
-    let edges: BTreeMap<_, _> = scenario
-        .workflow
+    let edges: BTreeMap<_, _> = workflow
         .edges
         .iter()
         .map(|edge| (edge.from.as_str(), edge.to.as_str()))
         .collect();
-    let mut current = scenario
-        .workflow
+    let mut current = workflow
         .nodes
         .iter()
         .position(|node| matches!(node, WorkflowNode::Start { .. }));
@@ -133,7 +89,7 @@ pub(crate) fn ordered_indices(scenario: &ScenarioDocument) -> Vec<usize> {
     while let Some(index) = current {
         indices.push(index);
         current = edges
-            .get(scenario.workflow.nodes[index].id())
+            .get(workflow.nodes[index].id())
             .and_then(|id| nodes.get(id))
             .copied();
     }
