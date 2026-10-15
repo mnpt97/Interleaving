@@ -1,5 +1,8 @@
 use interl_core::{Diagnostic, ErrorCategory, ScenarioFormat};
-use interl_engine::{CancellationToken, PreparedRun, RunEvent, RunOptions, RunReport};
+use interl_engine::{
+    CancellationToken, EnvironmentSecretProvider, PreparedRun, RunEvent, RunHandle, RunOptions,
+    RunReport, SecretProvider,
+};
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{Manager, State, ipc::Channel};
@@ -13,6 +16,7 @@ pub struct RunRegistry(Mutex<Registry>);
 struct Registry {
     active: Option<(String, CancellationToken)>,
     report: Option<RunReport>,
+    next_reservation: u64,
 }
 #[derive(Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -35,10 +39,134 @@ pub fn prepare(
     format: ScenarioFormat,
     options: RunOptions,
 ) -> Result<PreparedRun, Vec<Diagnostic>> {
+    prepare_with_provider(source, format, options, &EnvironmentSecretProvider)
+}
+fn prepare_with_provider(
+    source: &str,
+    format: ScenarioFormat,
+    options: RunOptions,
+    provider: &dyn SecretProvider,
+) -> Result<PreparedRun, Vec<Diagnostic>> {
     let document = interl_core::parse_scenario(source, format).map_err(|e| vec![e.diagnostic])?;
-    PreparedRun::new(&document, options)
+    PreparedRun::new_with_secret_provider(&document, options, provider)
+}
+
+// Never hold a registry lock while parsing or consulting a provider. The guard
+// owns the preparing slot, cancels on failure, and only releases its own slot.
+struct StartReservation<'a> {
+    registry: &'a RunRegistry,
+    id: String,
+    cancel: CancellationToken,
+    committed: bool,
+}
+impl Drop for StartReservation<'_> {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.cancel.cancel();
+            if let Ok(mut registry) = self.registry.0.lock()
+                && registry
+                    .active
+                    .as_ref()
+                    .is_some_and(|(id, _)| id == &self.id)
+            {
+                registry.active = None;
+            }
+        }
+    }
+}
+impl StartReservation<'_> {
+    fn start(mut self, prepared: PreparedRun) -> Result<RunHandle, Vec<Diagnostic>> {
+        let mut registry = self
+            .registry
+            .0
+            .lock()
+            .map_err(|_| vec![diagnostic("Run registry unavailable")])?;
+        if self.cancel.is_cancelled()
+            || !registry
+                .active
+                .as_ref()
+                .is_some_and(|(id, _)| id == &self.id)
+        {
+            return Err(vec![diagnostic(
+                "Run start was cancelled; no requests were sent",
+            )]);
+        }
+        let handle = prepared.start(self.cancel.clone());
+        registry.active = Some((handle.run_id.clone(), self.cancel.clone()));
+        registry.report = None;
+        self.committed = true;
+        Ok(handle)
+    }
 }
 impl RunRegistry {
+    fn reserve(&self) -> Result<StartReservation<'_>, Vec<Diagnostic>> {
+        let mut registry = self
+            .0
+            .lock()
+            .map_err(|_| vec![diagnostic("Run registry unavailable")])?;
+        if registry.active.is_some() {
+            return Err(vec![diagnostic(
+                "A run is already active; cancel it or wait for completion",
+            )]);
+        }
+        registry.next_reservation = registry
+            .next_reservation
+            .checked_add(1)
+            .ok_or_else(|| vec![diagnostic("Run registry capacity reached")])?;
+        let id = format!("preparing:{}", registry.next_reservation);
+        let cancel = CancellationToken::new();
+        registry.active = Some((id.clone(), cancel.clone()));
+        Ok(StartReservation {
+            registry: self,
+            id,
+            cancel,
+            committed: false,
+        })
+    }
+    fn start(
+        &self,
+        prepare: impl FnOnce() -> Result<PreparedRun, Vec<Diagnostic>>,
+    ) -> Result<RunHandle, Vec<Diagnostic>> {
+        let reservation = self.reserve()?;
+        if reservation.cancel.is_cancelled() {
+            return Err(vec![diagnostic(
+                "Run start was cancelled; no requests were sent",
+            )]);
+        }
+        reservation.start(prepare()?)
+    }
+    fn finish(&self, id: &str, report: Option<&RunReport>) {
+        if let Ok(mut registry) = self.0.lock()
+            && registry
+                .active
+                .as_ref()
+                .is_some_and(|(active, _)| active == id)
+        {
+            registry.active = None;
+            registry.report = report.cloned();
+        }
+    }
+    fn report_bytes(&self, id: &str) -> Result<Vec<u8>, Diagnostic> {
+        let registry = self
+            .0
+            .lock()
+            .map_err(|_| diagnostic("Run registry unavailable"))?;
+        let report = registry
+            .report
+            .as_ref()
+            .filter(|report| report.run_id == id)
+            .ok_or_else(|| diagnostic("Completed report is no longer available"))?;
+        serde_json::to_vec(report).map_err(|_| diagnostic("Report serialization failed"))
+    }
+    fn save_report(&self, path: &str, id: &str) -> Result<(), Diagnostic> {
+        if !path.to_ascii_lowercase().ends_with(".json") {
+            return Err(diagnostic("Choose a .json report file"));
+        }
+        let bytes = self.report_bytes(id)?;
+        // File IO happens after releasing the registry lock.
+        std::fs::write(path, bytes)
+            .map_err(|_| diagnostic("Report could not be written; check file permissions"))
+    }
     pub fn cancel(&self, id: &str) -> bool {
         let Ok(registry) = self.0.lock() else {
             return false;
@@ -59,6 +187,25 @@ impl RunRegistry {
         }
     }
 }
+// Shared forwarding path for native IPC and headless adapter tests. A failed
+// delivery cancels the engine, but its safe partial report remains available.
+async fn forward_events(
+    mut handle: RunHandle,
+    mut send: impl FnMut(RunEvent) -> bool,
+) -> (String, Result<RunReport, tokio::task::JoinError>) {
+    let mut ipc_dropped = 0u64;
+    while let Some(event) = handle.events.recv().await {
+        if !send(event) {
+            ipc_dropped += 1;
+            handle.cancel.cancel();
+        }
+    }
+    let result = handle.task.await.map(|mut report| {
+        report.delivery_dropped_events = report.delivery_dropped_events.saturating_add(ipc_dropped);
+        report
+    });
+    (handle.run_id, result)
+}
 #[tauri::command]
 pub fn start_scenario(
     source: String,
@@ -68,44 +215,20 @@ pub fn start_scenario(
     state: State<'_, RunRegistry>,
     app: tauri::AppHandle,
 ) -> Result<StartedRun, Vec<Diagnostic>> {
-    let prepared = prepare(&source, format, options.unwrap_or_default())?;
-    let mut registry = state
-        .0
-        .lock()
-        .map_err(|_| vec![diagnostic("Run registry unavailable")])?;
-    if registry.active.is_some() {
-        return Err(vec![diagnostic(
-            "A run is already active; cancel it or wait for completion",
-        )]);
-    }
-    let cancel = CancellationToken::new();
-    // Command is synchronous, so enter Tauri's Tokio runtime before spawning the engine.
+    // The engine spawn needs Tauri's runtime; the reservation precedes all
+    // preparation so rejected duplicate starts never perform secret lookup.
     let runtime = tauri::async_runtime::handle();
     let _entered = runtime.inner().enter();
-    let mut handle = prepared.start(cancel.clone());
+    let handle = state.start(|| prepare(&source, format, options.unwrap_or_default()))?;
     let id = handle.run_id.clone();
-    registry.active = Some((id.clone(), cancel.clone()));
-    registry.report = None;
-    drop(registry);
     tauri::async_runtime::spawn(async move {
-        while let Some(event) = handle.events.recv().await {
-            if channel.send(RunMessage::Event { event }).is_err() {
-                cancel.cancel();
-            }
-        }
-        let result = handle.task.await;
+        let event_channel = channel.clone();
+        let (id, result) = forward_events(handle, move |event| {
+            event_channel.send(RunMessage::Event { event }).is_ok()
+        })
+        .await;
         let state = app.state::<RunRegistry>();
-        if let Ok(mut registry) = state.0.lock()
-            && registry
-                .active
-                .as_ref()
-                .is_some_and(|(active, _)| active == &handle.run_id)
-        {
-            registry.active = None;
-            if let Ok(report) = &result {
-                registry.report = Some(report.clone());
-            }
-        }
+        state.finish(&id, result.as_ref().ok());
         match result {
             Ok(report) => {
                 let _ = channel.send(RunMessage::Finished {
@@ -131,22 +254,7 @@ pub fn save_run_report(
     run_id: String,
     state: State<'_, RunRegistry>,
 ) -> Result<(), Diagnostic> {
-    if !path.to_ascii_lowercase().ends_with(".json") {
-        return Err(diagnostic("Choose a .json report file"));
-    }
-    let registry = state
-        .0
-        .lock()
-        .map_err(|_| diagnostic("Run registry unavailable"))?;
-    let report = registry
-        .report
-        .as_ref()
-        .filter(|r| r.run_id == run_id)
-        .ok_or_else(|| diagnostic("Completed report is no longer available"))?;
-    let bytes =
-        serde_json::to_vec(report).map_err(|_| diagnostic("Report serialization failed"))?;
-    std::fs::write(path, bytes)
-        .map_err(|_| diagnostic("Report could not be written; check file permissions"))
+    state.save_report(&path, &run_id)
 }
 #[cfg(test)]
 mod tests {
@@ -201,3 +309,7 @@ mod tests {
         assert!(!state.cancel("active"));
     }
 }
+
+#[cfg(test)]
+#[path = "execution_auth_tests.rs"]
+mod auth_tests;

@@ -1,4 +1,5 @@
 #![allow(dead_code)] // Shared local-server fixture; each crate uses a subset.
+pub mod auth;
 use axum::{
     body::Bytes,
     extract::State,
@@ -18,6 +19,7 @@ pub struct TestServer {
     pub base_url: String,
     pub entered: std::sync::Arc<Notify>,
     pub hits: std::sync::Arc<AtomicUsize>,
+    pub auth_entered: std::sync::Arc<Notify>,
     task: JoinHandle<()>,
 }
 impl Drop for TestServer {
@@ -27,6 +29,9 @@ impl Drop for TestServer {
 }
 impl TestServer {
     pub async fn start() -> Self {
+        Self::start_with_auth(auth::AuthState::new(std::time::Duration::from_millis(300))).await
+    }
+    pub async fn start_with_auth(auth: auth::AuthState) -> Self {
         let state = ServerState::default();
         let app = axum::Router::new()
             .route("/health", get(|| async { axum::Json(serde_json::json!({"status":"ok"})) }))
@@ -66,7 +71,7 @@ impl TestServer {
                     axum::Json(serde_json::json!({"password":"response-secret", "echo":"response-secret", "ok":true}))
                 }),
             )
-            .with_state(state.clone());
+            .with_state(state.clone()).merge(auth::router(auth.clone()));
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind local test server");
@@ -78,6 +83,7 @@ impl TestServer {
             base_url,
             entered: state.entered,
             hits: state.hits,
+            auth_entered: auth.entered,
             task,
         }
     }

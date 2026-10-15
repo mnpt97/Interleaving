@@ -1,4 +1,6 @@
-//! Local-only manual M2 verification server. Never used by production execution.
+//! Local-only manual HTTP/auth verification server. Never used by production execution.
+#[path = "../../../tests/support/auth.rs"]
+mod auth;
 use axum::{
     body::Bytes,
     http::{HeaderMap, Method},
@@ -26,11 +28,15 @@ async fn main() {
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 Json(json!({"status":"late"}))
             }),
-        );
+        )
+        .merge(auth::router(auth::AuthState::new(
+            std::time::Duration::from_secs(10),
+        )));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
         .await
         .expect("port 8080 must be available");
-    println!("M2 verification server: http://127.0.0.1:8080 (Ctrl-C to stop)");
+    println!("Local verification server: http://127.0.0.1:8080 (Ctrl-C to stop)");
+    println!("HTTP and fake auth routes: docs/test-server.md");
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;

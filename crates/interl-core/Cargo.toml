@@ -2,6 +2,8 @@
 name = "interl-core"
 
 [dependencies]
+dsntk-feel = "=0.3.0"
+dsntk-feel-parser = "=0.3.0"
 saphyr-parser = "0.1"
 serde_path_to_error = "0.1"
 url = "2"

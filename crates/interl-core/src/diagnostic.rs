@@ -29,6 +29,11 @@ pub struct DiagnosticFields {
     pub file_path: Option<String>,
     pub line: Option<usize>,
     pub column: Option<usize>,
+    /// One-based location within the FEEL string, never a document location.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expression_line: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expression_column: Option<usize>,
 }
 
 impl std::ops::Deref for Diagnostic {
@@ -64,6 +69,8 @@ impl Diagnostic {
             file_path: None,
             line: None,
             column: None,
+            expression_line: None,
+            expression_column: None,
         }))
     }
     pub(crate) fn at(mut self, line: usize, column: usize) -> Self {
@@ -89,7 +96,15 @@ impl std::fmt::Display for Diagnostic {
             f,
             " [{:?}/{}] {}: {}",
             self.category, self.code, self.field_path, self.message
-        )
+        )?;
+        if let Some(line) = self.expression_line {
+            write!(
+                f,
+                " (expression {line}:{})",
+                self.expression_column.unwrap_or(1)
+            )?;
+        }
+        Ok(())
     }
 }
 

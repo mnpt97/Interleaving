@@ -117,20 +117,18 @@ pub fn parse_scenario_with_limits(
         }
         _ => {}
     }
-    for name in ["identities", "assertions"] {
-        if value
-            .get(name)
-            .and_then(Value::as_array)
-            .is_some_and(|values| !values.is_empty())
-        {
-            return Err(Diagnostic::new(
-                ErrorCategory::Schema,
-                "unsupportedFeature",
-                &pointer("", name),
-                "Nonempty declarations are unsupported in the current schema; use an empty array.",
-            )
-            .into());
-        }
+    if value
+        .get("assertions")
+        .and_then(Value::as_array)
+        .is_some_and(|values| !values.is_empty())
+    {
+        return Err(Diagnostic::new(
+            ErrorCategory::Schema,
+            "unsupportedFeature",
+            "/assertions",
+            "Nonempty assertions are unsupported in the current schema; use an empty array.",
+        )
+        .into());
     }
     serde_path_to_error::deserialize(value).map_err(|error| {
         let mut path = String::new();

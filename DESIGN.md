@@ -494,12 +494,14 @@ Editor changes are separate from the immutable snapshot captured at run start. D
 | ------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | **M1 — Foundation**       | Workspace, desktop scaffold, scenario models/validator, CLI `validate`, canvas   | CLI and Tauri validate the same `hello-api.json`; unit tests pass      |
 | **M2 — Single-user HTTP** | HTTP adapter, sequential engine, event channel, `interl run`, response inspector | GET/POST execute in desktop and CLI; errors/timeouts/cancel observable |
-| **M3 — Stateful auth**    | Identity refs, login/extract/session updates, cookie isolation                   | Two users authenticate independently; no session leakage               |
-| **M4 — Virtual users**    | Groups, N users, identity assignment, concurrency limits                         | N independent users execute; bounded resources and cancellation        |
+| **M3 — Stateful auth**    | Identity refs, login/extract/session updates, one user-owned session              | Single-user bearer/cookie auth; redacted CLI/desktop reports               |
+| **M4 — Virtual users**    | Groups, N users, identity assignment, concurrency limits                         | N independent users execute; bounded resources/cancellation; two-user auth isolation proof        |
 | **M5 — Synchronization**  | Barriers, structured branching, cross-user assertions                            | Controlled double-booking test catches broken invariant                |
 | **M6 — Network/TLS**      | mTLS identity lifecycle, explicit retry policies, fault handling                 | Rotation uses new transport; in-flight requests remain safe            |
 | **M7 — Observability**    | Timeline filters, correlations, reports, repeat runs                             | Reproducible scenario inputs and redacted comparable traces            |
 | **M8 — CI/distribution**  | CLI exit codes, packaged app, docs, security hardening                           | macOS app and headless CI run from same scenario                       |
+
+M3 scope follows the [accepted authentication ADR](docs/adr/0001-m3-auth-foundation.md): production retains one group/count 1; new two-user isolation tests and the two-user acceptance proof move to M4. Existing session-isolation coverage remains. Implementation and automated evidence are recorded in [M3 progress](docs/milestone-3.md); native acceptance remains separately tracked.
 
 ### M1 detailed task order
 
@@ -565,8 +567,8 @@ Editor changes are separate from the immutable snapshot captured at run start. D
 
 ## 14. Decisions to revisit later
 
-- Whether identity/secret storage uses OS keychain in M3 or starts with environment references only.
-- Exact JSON report schema and artifact retention policy.
+- M3 uses environment references only; revisit OS keychain support in a later milestone.
+- M3 emits report version 2; revisit artifact retention policy in a later milestone.
 - Barrier participation across multiple groups, failure propagation, and partial-arrival semantics.
 - Precise assertion DSL; prefer structured typed assertions over arbitrary expressions.
 - Transport factory interface for mTLS certificate rotation.

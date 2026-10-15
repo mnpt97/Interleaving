@@ -53,8 +53,34 @@ impl Redactor {
             || self.fields.iter().any(|f| f.eq_ignore_ascii_case(&key))
     }
     fn remember(&mut self, value: &str) {
-        if !value.is_empty() && !self.exhausted {
-            for secret in [value.to_owned(), interl_http::encode_component(value)] {
+        let mut pending = vec![value];
+        while let Some(value) = pending.pop() {
+            if value.is_empty() || self.exhausted || self.secrets.contains(value) {
+                continue;
+            }
+            let escaped = serde_json::to_string(value).unwrap_or_default();
+            let encoded = interl_http::encode_component(value);
+            let mut lower_encoded = encoded.clone().into_bytes();
+            for index in 0..lower_encoded.len().saturating_sub(2) {
+                if lower_encoded[index] == b'%' {
+                    lower_encoded[index + 1].make_ascii_lowercase();
+                    lower_encoded[index + 2].make_ascii_lowercase();
+                }
+            }
+            // Percent encoding is ASCII; the conversion cannot expose input on failure.
+            let lower_encoded = String::from_utf8(lower_encoded).unwrap_or_default();
+            for secret in [
+                value.to_owned(),
+                encoded,
+                lower_encoded,
+                escaped
+                    .get(1..escaped.len().saturating_sub(1))
+                    .unwrap_or_default()
+                    .to_owned(),
+            ] {
+                if secret.is_empty() {
+                    continue;
+                }
                 if !self.secrets.contains(&secret) {
                     self.secret_bytes += secret.len();
                     if self.secret_bytes > 1_048_576 || self.secrets.len() >= 4096 {
@@ -67,18 +93,81 @@ impl Redactor {
                     self.matcher.take();
                 }
             }
-            if let Some(token) = value
-                .strip_prefix("Bearer ")
-                .or_else(|| value.strip_prefix("Basic "))
-            {
-                self.remember(token);
+            if let Some((scheme, token)) = value.split_once(' ') {
+                if scheme.eq_ignore_ascii_case("Bearer") || scheme.eq_ignore_ascii_case("Basic") {
+                    pending.push(token);
+                }
             }
             for pair in value.split(';') {
                 if let Some((_, v)) = pair.split_once('=') {
                     if !v.trim().is_empty() {
-                        self.remember(v.trim());
+                        pending.push(v.trim());
                     }
                 }
+            }
+        }
+    }
+    pub(crate) fn remember_secret(&mut self, value: &str) {
+        self.remember(value);
+    }
+
+    /// Learn literal values, never the strings inside reference descriptors.
+    pub(crate) fn learn_document(&mut self, document: &interl_core::ScenarioDocument) {
+        use interl_core::{RequestBody, SessionHeaderValue, TemplateValue, WorkflowNode};
+        fn literal(value: &TemplateValue) -> Value {
+            match value {
+                TemplateValue::Literal { value } => value.clone(),
+                TemplateValue::Object { fields } => fields
+                    .iter()
+                    .map(|(key, value)| (key.clone(), literal(value)))
+                    .collect(),
+                TemplateValue::Array { items } => Value::Array(items.iter().map(literal).collect()),
+                _ => Value::Null,
+            }
+        }
+        let mut learning = serde_json::to_value(document).expect("scenario is serializable");
+        learning["identities"] = json!([]);
+        for (index, node) in document.workflow.nodes.iter().enumerate() {
+            match node {
+                WorkflowNode::Http { config, .. } => match &config.body {
+                    Some(RequestBody::JsonTemplate { fields }) => {
+                        learning["workflow"]["nodes"][index]["config"]["body"] = json!({"kind":"json","value": fields.iter().map(|(key, value)| (key.clone(), literal(value))).collect::<serde_json::Map<_, _>>()});
+                    }
+                    Some(RequestBody::Text { value }) => self.remember(value),
+                    _ => {}
+                },
+                WorkflowNode::SetSession { config, .. } => {
+                    learning["workflow"]["nodes"][index]["config"]["setHeaders"] = Value::Object(
+                        config
+                            .set_headers
+                            .iter()
+                            .map(|(key, value)| {
+                                (
+                                    key.clone(),
+                                    match value {
+                                        SessionHeaderValue::Literal { value, prefix } => {
+                                            let rendered = format!("{prefix}{value}");
+                                            self.remember(value);
+                                            self.remember(&rendered);
+                                            json!(rendered)
+                                        }
+                                        _ => Value::Null,
+                                    },
+                                )
+                            })
+                            .collect(),
+                    );
+                }
+                _ => {}
+            }
+        }
+        self.learn(&learning);
+        for value in document.environment.variables.values() {
+            self.remember_value(value);
+        }
+        for profile in &document.client_profiles {
+            if let Ok(url) = Url::parse(&profile.base_url) {
+                self.learn_url(&url);
             }
         }
     }
@@ -209,6 +298,9 @@ impl Redactor {
         self.text(url.as_str())
     }
     pub fn headers(&self, headers: &HeaderMap) -> Value {
+        if self.exhausted {
+            return Self::omitted_headers("Redaction budget exceeded");
+        }
         let mut map = serde_json::Map::new();
         let mut bytes = 0;
         for (key, value) in headers.iter().take(64) {
@@ -224,7 +316,7 @@ impl Redactor {
                 map.insert("[omitted]".into(), json!("Header preview limit reached"));
                 break;
             }
-            map.insert(key.to_string(), Value::String(value));
+            map.insert(self.text(key.as_str()), Value::String(value));
         }
         Value::Object(map)
     }
@@ -235,6 +327,9 @@ impl Redactor {
         truncated: bool,
         limit: usize,
     ) -> Value {
+        if self.exhausted {
+            return Self::omitted_body(bytes, truncated, "Redaction budget exceeded");
+        }
         let value = value.map(|v| self.value(v));
         let fits = value
             .as_ref()
@@ -244,6 +339,12 @@ impl Redactor {
         } else {
             json!({"value":null,"bytes":bytes,"truncated":truncated,"omitted":true,"reason":"Only complete JSON bodies within the preview limit are shown"})
         }
+    }
+    pub(crate) fn omitted_headers(reason: &str) -> Value {
+        json!({"[omitted]":reason})
+    }
+    pub(crate) fn omitted_body(bytes: usize, truncated: bool, reason: &str) -> Value {
+        json!({"value":null,"bytes":bytes,"truncated":truncated,"omitted":true,"reason":reason})
     }
     pub fn snapshot(&self, document: &interl_core::ScenarioDocument) -> Value {
         let mut snapshot = serde_json::to_value(document).expect("scenario is serializable");
@@ -285,7 +386,39 @@ impl Redactor {
                 }
             }
         }
-        self.value(&snapshot)
+        let mut snapshot = self.value(&snapshot);
+        // Credential descriptors contain public references, not resolved data.
+        // Preserve them without treating names such as "password" as payloads.
+        fn references(redactor: &Redactor, value: &Value) -> Value {
+            match value {
+                Value::Object(map) => Value::Object(
+                    map.iter()
+                        .map(|(key, value)| (redactor.text(key), references(redactor, value)))
+                        .collect(),
+                ),
+                Value::Array(values) => Value::Array(
+                    values
+                        .iter()
+                        .map(|value| references(redactor, value))
+                        .collect(),
+                ),
+                Value::String(value) => json!(redactor.text(value)),
+                _ => value.clone(),
+            }
+        }
+        if !self.exhausted {
+            if let Some(object) = snapshot.as_object_mut() {
+                object.insert(
+                    "identities".into(),
+                    references(
+                        self,
+                        &serde_json::to_value(&document.identities)
+                            .expect("references are serializable"),
+                    ),
+                );
+            }
+        }
+        snapshot
     }
 }
 
@@ -309,6 +442,23 @@ mod tests {
         assert_eq!(
             redactor.value(&json!({"password":"unknown"})),
             json!("[Preview omitted: redaction budget exceeded]")
+        );
+        assert_eq!(
+            redactor.body(Some(&json!({"unknown":"private"})), 20, false, 16384)["omitted"],
+            true
+        );
+        assert!(redactor.headers(&HeaderMap::new())["[omitted]"].is_string());
+    }
+    #[test]
+    fn newly_registered_tokens_invalidate_cached_matchers_and_schemes_ignore_case() {
+        let mut redactor = Redactor::new(vec![]);
+        redactor.remember_secret("first-token");
+        assert_eq!(redactor.text("first-token"), "[REDACTED]");
+        redactor.remember_secret("bearer second-token");
+        redactor.remember_secret("basic encoded-credential");
+        assert_eq!(
+            redactor.text("second-token encoded-credential"),
+            "[REDACTED] [REDACTED]"
         );
     }
 }

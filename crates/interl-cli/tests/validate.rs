@@ -31,6 +31,30 @@ fn equivalent_examples_succeed_without_stderr() {
 }
 
 #[test]
+fn auth_validation_is_offline_and_execution_requires_credentials() {
+    for name in ["auth-login.interl.json", "auth-login.interl.yaml"] {
+        let path = examples().join(name);
+        let output = Command::new(env!("CARGO_BIN_EXE_interl"))
+            .args(["validate", path.to_str().unwrap()])
+            .env_remove("INTERL_ALICE_USERNAME")
+            .env_remove("INTERL_ALICE_PASSWORD")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        let output = Command::new(env!("CARGO_BIN_EXE_interl"))
+            .args(["run", path.to_str().unwrap()])
+            .env_remove("INTERL_ALICE_USERNAME")
+            .env_remove("INTERL_ALICE_PASSWORD")
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("missingSecret"));
+    }
+}
+
+#[test]
 fn missing_paths_arguments_and_unsupported_extensions_fail() {
     for args in [
         vec!["validate"],

@@ -5,10 +5,17 @@ pub use reqwest::{header::HeaderMap, Url};
 use reqwest::{Client, Method, Request};
 use serde::Serialize;
 use serde_json::Value;
-use std::{collections::BTreeMap, error::Error, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    sync::Arc,
+    time::Duration,
+};
 use tokio_util::sync::CancellationToken;
 
 pub const MAX_TIMEOUT_MS: u64 = 300_000;
+pub const MAX_SESSION_HEADER_BYTES: usize = 8192;
+const MAX_SESSION_HEADER_NAME_BYTES: usize = 128;
 pub fn encode_component(value: &str) -> String {
     utf8_percent_encode(value, NON_ALPHANUMERIC).to_string()
 }
@@ -98,6 +105,12 @@ impl reqwest::dns::Resolve for SystemResolver {
 }
 
 /// Raw request/response data deliberately do not implement Serialize or Debug.
+/// Materialized by the caller; transport never resolves identities or templates.
+pub enum ResolvedBody {
+    Json(Value),
+    Text(String),
+}
+
 pub struct PreparedRequest {
     request: Request,
     pub body: Option<Value>,
@@ -112,6 +125,12 @@ impl PreparedRequest {
     pub fn headers(&self) -> &HeaderMap {
         self.request.headers()
     }
+    pub fn body_bytes(&self) -> usize {
+        self.request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .map_or(0, <[u8]>::len)
+    }
 }
 pub struct HttpResponse {
     pub status: u16,
@@ -122,7 +141,9 @@ pub struct HttpResponse {
 
 pub struct HttpSession {
     client: Client,
-    headers: HeaderMap,
+    profile_headers: HeaderMap,
+    session_headers: HeaderMap,
+    removed_headers: BTreeSet<String>,
     base_url: Url,
     timeout_ms: u64,
     max_response_bytes: usize,
@@ -164,7 +185,9 @@ impl HttpSession {
             .map_err(|_| HttpError::configuration("HTTP client could not be initialized"))?;
         Ok(Self {
             client,
-            headers,
+            profile_headers: headers,
+            session_headers: HeaderMap::new(),
+            removed_headers: BTreeSet::new(),
             base_url,
             timeout_ms: profile.timeout_ms,
             max_response_bytes,
@@ -176,6 +199,98 @@ impl HttpSession {
         &self,
         config: &HttpConfig,
         variables: &BTreeMap<String, Value>,
+    ) -> Result<PreparedRequest, HttpError> {
+        let body = match &config.body {
+            Some(RequestBody::Json { value }) => Some(ResolvedBody::Json(value.clone())),
+            Some(RequestBody::Text { value }) => Some(ResolvedBody::Text(value.clone())),
+            Some(RequestBody::JsonTemplate { .. }) => {
+                return Err(HttpError::configuration(
+                    "JSON templates must be resolved by the engine before HTTP preparation",
+                ));
+            }
+            None => None,
+        };
+        self.prepare_body(config, variables, body)
+    }
+
+    /// Explicitly replaces config.body with an already-materialized body.
+    /// It is still subject to encoded byte limits and ordinary HTTP validation.
+    /// No reference lookup, JSON template interpretation, or FEEL occurs here.
+    pub fn prepare_resolved(
+        &self,
+        config: &HttpConfig,
+        variables: &BTreeMap<String, Value>,
+        body: ResolvedBody,
+    ) -> Result<PreparedRequest, HttpError> {
+        self.prepare_body(config, variables, Some(body))
+    }
+
+    /// Validate the entire update before changing state. Removal suppresses
+    /// inherited defaults; explicit request headers can still override it.
+    /// Neither the client nor its cookie jar is rebuilt.
+    pub fn update_headers(
+        &mut self,
+        set: &BTreeMap<String, String>,
+        remove: &[String],
+    ) -> Result<(), HttpError> {
+        if set.is_empty() && remove.is_empty() {
+            return Err(HttpError::configuration("Session header update is empty"));
+        }
+        let mut names = BTreeSet::new();
+        let mut parsed_set = HeaderMap::new();
+        for (name, value) in set {
+            let name = session_header_name(name)?;
+            if !names.insert(name.as_str().to_owned()) {
+                return Err(HttpError::configuration("Duplicate session header name"));
+            }
+            if value.len() > MAX_SESSION_HEADER_BYTES
+                || value
+                    .bytes()
+                    .any(|ch| (ch < 32 && ch != b'\t') || ch == 127)
+            {
+                return Err(HttpError::configuration(
+                    "Invalid or oversized session header value",
+                ));
+            }
+            let mut value = reqwest::header::HeaderValue::from_str(value)
+                .map_err(|_| HttpError::configuration("Invalid session header value"))?;
+            value.set_sensitive(true);
+            parsed_set
+                .try_insert(name, value)
+                .map_err(|_| header_capacity_error())?;
+        }
+        let mut parsed_remove = Vec::with_capacity(remove.len());
+        for name in remove {
+            let name = session_header_name(name)?;
+            if !names.insert(name.as_str().to_owned()) {
+                return Err(HttpError::configuration(
+                    "Duplicate or conflicting session header operation",
+                ));
+            }
+            parsed_remove.push(name);
+        }
+        let mut next_headers = self.session_headers.clone();
+        let mut next_removed = self.removed_headers.clone();
+        for name in parsed_remove {
+            next_headers.remove(&name);
+            next_removed.insert(name.as_str().to_owned());
+        }
+        for (name, value) in parsed_set.iter() {
+            next_removed.remove(name.as_str());
+            next_headers
+                .try_insert(name.clone(), value.clone())
+                .map_err(|_| header_capacity_error())?;
+        }
+        self.session_headers = next_headers;
+        self.removed_headers = next_removed;
+        Ok(())
+    }
+
+    fn prepare_body(
+        &self,
+        config: &HttpConfig,
+        variables: &BTreeMap<String, Value>,
+        body: Option<ResolvedBody>,
     ) -> Result<PreparedRequest, HttpError> {
         let timeout_ms = config.timeout_ms.unwrap_or(self.timeout_ms);
         check_timeout(timeout_ms)?;
@@ -198,6 +313,13 @@ impl HttpSession {
                 "Request path must preserve the client origin",
             ));
         }
+        if url.path().len() + url.query().map_or(0, |query| query.len() + 1)
+            > self.max_request_bytes
+        {
+            return Err(HttpError::configuration(
+                "Encoded request path exceeds the byte limit",
+            ));
+        }
         let method = match config.method {
             HttpMethod::Get => Method::GET,
             HttpMethod::Post => Method::POST,
@@ -205,17 +327,29 @@ impl HttpSession {
             HttpMethod::Patch => Method::PATCH,
             HttpMethod::Delete => Method::DELETE,
         };
-        let mut headers = self.headers.clone();
-        headers.extend(parse_headers(&config.headers)?);
+        let mut headers = self.profile_headers.clone();
+        for name in &self.removed_headers {
+            headers.remove(name.as_str());
+        }
+        for (name, value) in self.session_headers.iter() {
+            headers
+                .try_insert(name.clone(), value.clone())
+                .map_err(|_| header_capacity_error())?;
+        }
+        for (name, value) in parse_headers(&config.headers)?.iter() {
+            headers
+                .try_insert(name.clone(), value.clone())
+                .map_err(|_| header_capacity_error())?;
+        }
         let has_content_type = headers.contains_key(reqwest::header::CONTENT_TYPE);
         let mut builder = self
             .client
             .request(method, url)
             .timeout(Duration::from_millis(timeout_ms))
             .headers(headers);
-        let body = match &config.body {
-            Some(RequestBody::Json { value }) => {
-                let encoded = serde_json::to_vec(value)
+        let body = match body {
+            Some(ResolvedBody::Json(value)) => {
+                let encoded = serde_json::to_vec(&value)
                     .map_err(|_| HttpError::configuration("Invalid JSON request body"))?;
                 if encoded.len() > self.max_request_bytes {
                     return Err(HttpError::configuration(
@@ -226,15 +360,15 @@ impl HttpSession {
                     builder = builder.header(reqwest::header::CONTENT_TYPE, "application/json");
                 }
                 builder = builder.body(encoded);
-                Some(value.clone())
+                Some(value)
             }
-            Some(RequestBody::Text { value }) => {
+            Some(ResolvedBody::Text(value)) => {
                 if value.len() > self.max_request_bytes {
                     return Err(HttpError::configuration(
                         "Request body exceeds the byte limit",
                     ));
                 }
-                builder = builder.body(value.clone());
+                builder = builder.body(value);
                 None
             }
             None => None,
@@ -282,6 +416,18 @@ impl HttpSession {
     }
 }
 
+fn session_header_name(name: &str) -> Result<reqwest::header::HeaderName, HttpError> {
+    if name.len() > MAX_SESSION_HEADER_NAME_BYTES {
+        return Err(HttpError::configuration("Invalid session header name"));
+    }
+    reqwest::header::HeaderName::from_bytes(name.as_bytes())
+        .map_err(|_| HttpError::configuration("Invalid session header name"))
+}
+
+fn header_capacity_error() -> HttpError {
+    HttpError::configuration("HTTP header storage capacity exceeded")
+}
+
 fn check_timeout(ms: u64) -> Result<(), HttpError> {
     if ms == 0 || ms > MAX_TIMEOUT_MS {
         Err(HttpError::configuration(
@@ -299,7 +445,9 @@ fn parse_headers(headers: &BTreeMap<String, String>) -> Result<HeaderMap, HttpEr
         let mut value = reqwest::header::HeaderValue::from_str(value)
             .map_err(|_| HttpError::configuration("Invalid header value"))?;
         value.set_sensitive(true);
-        result.insert(name, value);
+        result
+            .try_insert(name, value)
+            .map_err(|_| header_capacity_error())?;
     }
     Ok(result)
 }

@@ -52,19 +52,17 @@ fn schema_is_strict_and_future_declarations_are_rejected() {
     let mut v = value();
     v["workflow"]["nodes"][1]["config"]["typo"] = json!(true);
     assert!(has(&invalid(v), "invalidSchema"));
-    for name in ["identities", "assertions"] {
-        let mut v = value();
-        v[name] = json!([{"id":"future"}]);
-        assert!(has(&invalid(v), "unsupportedFeature"));
-    }
-    for kind in ["barrier", "assert", "fork", "loop", "extract", "setSession"] {
+    let mut v = value();
+    v["assertions"] = json!([{"id":"future"}]);
+    assert!(has(&invalid(v), "unsupportedFeature"));
+    for kind in ["barrier", "assert", "fork", "loop"] {
         let mut v = value();
         v["workflow"]["nodes"][1]["type"] = json!(kind);
         assert!(has(&invalid(v), "invalidSchema"));
     }
     let mut v = value();
     v["groups"][0]["identityAssignment"]["identityId"] = json!("identity");
-    assert!(has(&invalid(v), "unsupportedFeature"));
+    assert!(has(&invalid(v), "missingIdentity"));
     let mut v = value();
     v["workflow"]["nodes"][0]["config"] = json!({});
     assert!(has(&invalid(v), "invalidSchema"));

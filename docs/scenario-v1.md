@@ -2,6 +2,8 @@
 
 Rust types and validation in `interl-core` are authoritative. JSON is canonical serialization; YAML is preferred for hand-authored scenarios. Both formats have identical semantics. `schemaVersion` is the integer `1`.
 
+This page describes the operational M1/M2 execution contract. M3 Phase 2 adds typed auth shapes and static semantic validation described in [M3 schema additions](milestone-3.md); an engine capability guard prevents their execution until later phases. Existing scenario meanings remain unchanged.
+
 ## Document
 
 Required fields: `schemaVersion`, `id`, `name`, `environment`, `clientProfiles`, `identities`, `groups`, `workflow`, and `assertions`. `layout` is optional and may be null. Unknown fields are rejected, except within arbitrary JSON payloads and environment values.
@@ -64,3 +66,8 @@ Diagnostics contain `category`, stable `code`, `message`, `fieldPath`, optional 
 Load/parse errors stop deserialization. Semantic validation can return multiple deterministically ordered errors. CLI and desktop call the same core pipeline. `interl validate` exits `0` on success and `2` for invalid or unreadable input.
 
 Future capabilities require an explicit compatibility/migration policy. Older implementations reject unsupported configurations; existing scenarios must not silently change meaning. FEEL will remain read-only, with explicit operations owning mutation and the Rust engine owning scheduling.
+
+
+## M3 additive capabilities
+
+The sections above describe the M1/M2 baseline. Current schema v1 also supports typed environment-reference identities, explicit `jsonTemplate` bodies, bounded read-only `extract` nodes, and explicit `setSession` header operations. See [the authoritative M3 additions](milestone-3.md#typed-schema-additions) for shapes, validation, limits, and compatibility. Assertions, pool/unique assignment, branching, and concurrency remain unsupported. Both formats share the same Rust schema; JSON/text literal meanings have not changed. Expression diagnostics add separate optional `expressionLine`/`expressionColumn`. Current reports use version 2, independently of scenario schemaVersion 1.

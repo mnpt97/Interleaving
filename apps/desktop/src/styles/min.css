@@ -60,7 +60,6 @@
     --accent-800: #105656;
     --accent-900: #082b2b;
     --accent-950: #041616;
-
   }
   .dark {
     --text-50: #0b0f0f;
@@ -122,6 +121,5 @@
     --accent-800: #a9efef;
     --accent-900: #d4f7f7;
     --accent-950: #e9fbfb;
-
   }
 }

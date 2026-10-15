@@ -1,6 +1,6 @@
 # Interleaving
 
-A desktop and CLI tool for stateful API concurrency and correctness testing. **M2 adds single-user HTTP execution, cancellation, a redacted trace, and versioned JSON reports.** M1 loading, validation, and layout editing remain available.
+A desktop and CLI tool for stateful API concurrency and correctness testing. **Single-user HTTP and stateful authentication are implemented, with cancellation, a redacted trace, and versioned JSON reports.** M1 loading, validation, and layout editing remain available.
 
 ## Repository
 
@@ -17,6 +17,8 @@ plans/                       Implementation plans and accepted decisions
 ```
 
 See [DESIGN.md](DESIGN.md), [the M1 plan](plans/milestone-1.md), and [the supported scenario contract](docs/scenario-v1.md).
+
+M3 implementation and automated verification are available; native acceptance remains pending. The shared Rust engine now runs the `auth-login.interl.json` and `.yaml` workflows using environment credential references. Reports use version 2; validation still needs no credentials or network access. Authenticated CLI and Rust desktop-adapter parity are tested; desktop auth-node loading/rendering and reference-only inspection are implemented in Phase 9; native interaction checks remain pending. See [M3 progress and schema additions](docs/milestone-3.md).
 
 ## Setup
 
@@ -47,6 +49,8 @@ In one terminal, start the included loopback-only verification server:
 cargo run --locked -p interl-http --example test_server
 ```
 
+See [test-server routes and fake auth credentials](docs/test-server.md). M3 Phase 4 adds controlled auth endpoints; shared-engine auth execution is available; see [M3 runtime and environment setup](docs/milestone-3.md#user-runtime-and-report-v2).
+
 In another terminal:
 
 ```bash
@@ -54,9 +58,22 @@ cargo run --locked -p interl-cli --bin interl -- run scenarios/examples/hello-ap
 cargo run --locked -p interl-cli --bin interl -- run scenarios/examples/http-workflow.interl.json --output /tmp/interl-workflow.json
 ```
 
-Runs send real HTTP requests. M2 requires exactly one anonymous group with `count: 1` and a linear workflow. GET, POST, PUT, PATCH, and DELETE use the existing schema. Query strings go in `path`; `${variable}` resolves environment scalars with percent encoding. JSON and text bodies are supported; only bounded, complete JSON bodies receive a trace preview. Retries and automatic redirects are disabled.
+Runs send real HTTP requests. Execution requires exactly one group with `count: 1` and a linear workflow; M3 adds the documented authentication steps to the original anonymous HTTP behavior. GET, POST, PUT, PATCH, and DELETE use the existing schema. Query strings go in `path`; `${variable}` resolves environment scalars with percent encoding. JSON and text bodies are supported; only bounded, complete JSON bodies receive a trace preview. Retries and automatic redirects are disabled.
 
-Run exits: `0` completed transport workflow (including HTTP 4xx/5xx), `1` reserved for future assertion failures, `2` invalid input/configuration, `3` transport/infrastructure failure, `130` interrupted. Ctrl-C cancels in-flight work and still writes a partial report when `--output` is supplied. Human progress goes to stdout, diagnostics to stderr, and JSON only to the output file. See [M2 execution and report contracts](docs/milestone-2.md).
+Run exits: `0` completed transport workflow (including HTTP 4xx/5xx), `1` reserved for future assertion failures, `2` invalid input/configuration, `3` transport/infrastructure failure, `130` interrupted. Ctrl-C cancels in-flight work and still writes a partial report when `--output` is supplied. Human progress goes to stdout, diagnostics to stderr, and JSON only to the output file. M3 authentication uses environment references resolved in Rust; missing credentials reject startup with exit 2, and extraction/session failures stop later steps with exit 3. See [M2 execution and report contracts](docs/milestone-2.md).
+
+## Authentication examples
+
+Start the local server, then in the client terminal:
+
+```bash
+export INTERL_ALICE_USERNAME=alice
+export INTERL_ALICE_PASSWORD=alice-password
+cargo run --locked -p interl-cli --bin interl -- run scenarios/examples/auth-login.interl.yaml --output /tmp/interl-auth.json
+cargo run --locked -p interl-cli --bin interl -- run scenarios/examples/auth-cookie.interl.json --output /tmp/interl-cookie.json
+```
+
+Launch Tauri from that same terminal to inherit the variables, then open either example format. No automatic `.env` loading or secret-entry UI exists. See [the examples](scenarios/examples/README.md), [runtime contracts](docs/milestone-3.md), and the [M3 acceptance checklist](docs/m3-acceptance.md), including launching a packaged app with its environment.
 
 ## Desktop
 
@@ -88,6 +105,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 npm --prefix apps/desktop run build
 npm --prefix apps/desktop run test
+npm --prefix apps/desktop run format:check
 ```
 
 The frontend build checks both application TypeScript and Vite/Vitest configuration. Workspace tests include core parsing/graph regressions, a local axum server, isolated HTTP sessions, cancellation, redaction, bounded reports, CLI process/interrupt behavior, and adapter parity. Network tests bind loopback ports; restricted sandboxes must permit this. Frontend tests cover layout-only changes, stale asynchronous results, cancellation, diagnostics, and position form validation.

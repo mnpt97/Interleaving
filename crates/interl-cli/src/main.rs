@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use interl_engine::{CancellationToken, PreparedRun, RunOptions};
-use std::{path::PathBuf, process::ExitCode};
+use std::{future::Future, path::PathBuf, process::ExitCode, task::Poll};
 
 #[derive(Parser)]
 #[command(
@@ -16,7 +16,7 @@ struct Cli {
 enum Commands {
     /// Validate a scenario file.
     Validate { scenario: PathBuf },
-    /// Execute one anonymous user's sequential HTTP workflow.
+    /// Execute one user's sequential HTTP and authentication workflow.
     Run {
         scenario: PathBuf,
         #[arg(long)]
@@ -82,10 +82,23 @@ async fn run(scenario: PathBuf, output: Option<PathBuf>) -> ExitCode {
         }
     };
     let cancel = CancellationToken::new();
-    let mut handle = prepared.start(cancel.clone());
     let interrupt = tokio::signal::ctrl_c();
     tokio::pin!(interrupt);
-    let mut interrupted = false;
+    // Registration happens on first poll, not future construction. Arm the OS
+    // handler before starting HTTP so an immediate SIGINT cannot terminate the
+    // process before it can write a safe partial report.
+    let initial = std::future::poll_fn(|cx| Poll::Ready(interrupt.as_mut().poll(cx))).await;
+    let mut interrupted = match initial {
+        Poll::Pending => false,
+        Poll::Ready(result) => {
+            if result.is_err() {
+                eprintln!("Interrupt handler unavailable; cancelling run");
+            }
+            cancel.cancel();
+            true
+        }
+    };
+    let mut handle = prepared.start(cancel.clone());
     loop {
         tokio::select! {
             result = &mut interrupt, if !interrupted => {

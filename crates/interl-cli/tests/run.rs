@@ -4,15 +4,19 @@ use serde_json::{json, Value};
 use std::{
     path::PathBuf,
     process::{Command, Output},
+    sync::atomic::{AtomicU64, Ordering},
 };
 fn directory() -> PathBuf {
+    // Wall-clock resolution does not guarantee uniqueness across parallel tests.
+    static NEXT: AtomicU64 = AtomicU64::new(0);
     let path = std::env::temp_dir().join(format!(
-        "interl-run-{}-{}",
+        "interl-run-{}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
+            .as_nanos(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::create_dir(&path).unwrap();
     path
@@ -47,7 +51,7 @@ async fn reports_success_http_errors_and_transport_failure_with_stable_exit_code
         let output = execute(input, report.clone()).await;
         assert_eq!(output.status.code(), Some(status));
         let value: Value = serde_json::from_slice(&std::fs::read(report).unwrap()).unwrap();
-        assert_eq!(value["reportVersion"], 1);
+        assert_eq!(value["reportVersion"], 2);
         assert!(value["events"].as_array().unwrap().last().unwrap()["type"] == "run.finished");
         assert!(!String::from_utf8_lossy(&output.stdout).contains("reportVersion"));
     }

@@ -184,6 +184,96 @@ fn rejects_multiple_users_and_missing_variables_before_execution() {
     assert_eq!(interl_engine::exit_code(RunStatus::Error), 3);
     assert_eq!(interl_engine::exit_code(RunStatus::Cancelled), 130);
 }
+
+#[test]
+fn supported_auth_shapes_prepare_without_unnecessary_secret_reads() {
+    use interl_core::{parse_scenario, validate_scenario, ScenarioFormat};
+    let auth = parse_scenario(
+        include_str!("../../../scenarios/examples/auth-login.interl.json"),
+        ScenarioFormat::Json,
+    )
+    .unwrap();
+    let base = support::scenario("http://127.0.0.1:1", "/health");
+    let mut declarations = base.clone();
+    declarations.identities = auth.identities.clone();
+    let mut template = base.clone();
+    if let WorkflowNode::Http { config, .. } = &mut template.workflow.nodes[1] {
+        config.body = Some(RequestBody::JsonTemplate {
+            fields: Default::default(),
+        });
+    }
+    let mut session = base.clone();
+    session.workflow.nodes.push(WorkflowNode::SetSession {
+        id: "update".into(),
+        config: interl_core::SetSessionConfig {
+            set_headers: Default::default(),
+            remove_headers: vec!["authorization".into()],
+        },
+    });
+    session.workflow.edges = vec![
+        interl_core::WorkflowEdge {
+            from: "start".into(),
+            to: "update".into(),
+        },
+        interl_core::WorkflowEdge {
+            from: "update".into(),
+            to: "health".into(),
+        },
+        interl_core::WorkflowEdge {
+            from: "health".into(),
+            to: "end".into(),
+        },
+    ];
+    let mut extract = base;
+    extract.workflow.nodes.push(WorkflowNode::Extract {
+        id: "extract".into(),
+        config: interl_core::ExtractConfig {
+            source_node_id: "health".into(),
+            expression: "response.body.token".into(),
+            output: "token".into(),
+        },
+    });
+    extract.workflow.edges = vec![
+        interl_core::WorkflowEdge {
+            from: "start".into(),
+            to: "health".into(),
+        },
+        interl_core::WorkflowEdge {
+            from: "health".into(),
+            to: "extract".into(),
+        },
+        interl_core::WorkflowEdge {
+            from: "extract".into(),
+            to: "end".into(),
+        },
+    ];
+    for doc in [declarations, template, session, extract] {
+        validate_scenario(&doc).unwrap();
+        assert!(PreparedRun::new(&doc, RunOptions::default()).is_ok());
+    }
+}
+
+#[test]
+fn provider_is_not_called_for_anonymous_or_statically_rejected_runs() {
+    struct NeverRead;
+    impl interl_engine::SecretProvider for NeverRead {
+        fn lookup(&self, _: &str) -> Result<std::ffi::OsString, interl_engine::SecretLookupError> {
+            panic!("credential provider must not be called");
+        }
+    }
+    let doc = support::scenario("http://127.0.0.1:1", "/health");
+    assert!(PreparedRun::new_with_secret_provider(&doc, RunOptions::default(), &NeverRead).is_ok());
+    let mut auth = interl_core::parse_scenario(
+        include_str!("../../../scenarios/examples/auth-login.interl.json"),
+        interl_core::ScenarioFormat::Json,
+    )
+    .unwrap();
+    auth.groups[0].count = 2;
+    let errors = PreparedRun::new_with_secret_provider(&auth, RunOptions::default(), &NeverRead)
+        .err()
+        .unwrap();
+    assert_eq!(errors[0].code, "runConfiguration");
+}
 #[tokio::test]
 async fn layout_changes_preserve_execution_events() {
     let server = support::TestServer::start().await;

@@ -1,10 +1,19 @@
 //! Shared single-user runner. Adapters consume the same bounded, redacted trace.
+mod extract;
 mod redaction;
+mod secrets;
+mod security;
+mod user;
 use interl_core::{
-    compile_scenario, Diagnostic, ErrorCategory, ExecutionPlan, ScenarioDocument, WorkflowNode,
+    compile_scenario, Diagnostic, ErrorCategory, ExecutionPlan, HttpConfig, RequestBody,
+    ScenarioDocument, WorkflowNode,
 };
-use interl_http::{HttpError, HttpSession};
-use redaction::Redactor;
+use interl_http::{HttpError, HttpSession, PreparedRequest};
+pub use secrets::{
+    EnvironmentSecretProvider, SecretLookupError, SecretProvider, MAX_CREDENTIAL_BYTES,
+    MAX_CREDENTIAL_REFERENCES, MAX_TOTAL_CREDENTIAL_BYTES,
+};
+use security::RunSecurity;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Instant;
@@ -81,6 +90,11 @@ pub enum EventKind {
         headers: Value,
         body: Value,
     },
+    #[serde(rename = "session.updated")]
+    SessionUpdated {
+        set_headers: Vec<String>,
+        removed_headers: Vec<String>,
+    },
     #[serde(rename = "step.finished")]
     StepFinished {},
     #[serde(rename = "step.failed")]
@@ -129,9 +143,8 @@ pub struct RunReport {
 pub struct PreparedRun {
     plan: ExecutionPlan,
     document: ScenarioDocument,
-    session: HttpSession,
+    user: user::UserContext,
     options: RunOptions,
-    redactor: Redactor,
     snapshot: Value,
 }
 pub struct RunHandle {
@@ -142,28 +155,35 @@ pub struct RunHandle {
 }
 impl PreparedRun {
     pub fn new(document: &ScenarioDocument, options: RunOptions) -> Result<Self, Vec<Diagnostic>> {
+        Self::new_with_secret_provider(document, options, &EnvironmentSecretProvider)
+    }
+    /// Resolve only required references after static preflight, once per accepted
+    /// preparation. No requests are sent and no provider is retained.
+    pub fn new_with_secret_provider(
+        document: &ScenarioDocument,
+        options: RunOptions,
+        provider: &dyn SecretProvider,
+    ) -> Result<Self, Vec<Diagnostic>> {
         let plan = compile_scenario(document)?;
         let invalid = |message: &str| {
             vec![Diagnostic::new(
                 ErrorCategory::Validation,
-                "m2Configuration",
+                "runConfiguration",
                 "$",
                 message,
             )]
         };
         if document.groups.len() != 1 || document.groups[0].count != 1 {
-            return Err(invalid(
-                "M2 execution requires exactly one group with count 1",
-            ));
+            return Err(invalid("Execution requires exactly one group with count 1"));
         }
         if plan.steps().len() > 256 {
-            return Err(invalid("M2 execution supports at most 256 workflow nodes"));
+            return Err(invalid("Execution supports at most 256 workflow nodes"));
         }
         if document.id.len() > 128
             || document.groups[0].id.len() > 128
             || plan.steps().iter().any(|n| n.id().len() > 128)
         {
-            return Err(invalid("M2 run identifiers must be at most 128 bytes"));
+            return Err(invalid("Run identifiers must be at most 128 bytes"));
         }
         if !(1..=1024).contains(&options.event_capacity)
             || !(1..=65_536).contains(&options.max_preview_bytes)
@@ -186,30 +206,23 @@ impl PreparedRun {
         .map_err(|e| invalid(&e.message))?;
         for node in plan.steps() {
             if let WorkflowNode::Http { config, .. } = node {
-                session
-                    .prepare(config, &document.environment.variables)
+                static_request(&session, config, &document.environment.variables)
                     .map_err(|e| invalid(&e.message))?;
             }
         }
-        let mut redactor = Redactor::new(options.sensitive_fields.clone());
-        redactor.learn(&serde_json::to_value(document).expect("scenario is serializable"));
-        for value in document.environment.variables.values() {
-            redactor.remember_value(value);
-        }
+        let mut security =
+            RunSecurity::prepare(document, &plan, options.sensitive_fields.clone(), provider)
+                .map_err(|error| vec![error])?;
+        // Learn one URL at a time; expanded paths can be much larger than
+        // their source and must not accumulate across the whole workflow.
         for node in plan.steps() {
             if let WorkflowNode::Http { config, .. } = node {
-                let request = session
-                    .prepare(config, &document.environment.variables)
-                    .expect("requests were preflighted");
-                redactor.learn_url(request.url());
+                let request = static_request(&session, config, &document.environment.variables)
+                    .map_err(|e| invalid(&e.message))?;
+                security.learn_url(request.url());
             }
         }
-        for profile in &document.client_profiles {
-            if let Ok(url) = interl_http::Url::parse(&profile.base_url) {
-                redactor.learn_url(&url);
-            }
-        }
-        let snapshot = redactor.snapshot(document);
+        let snapshot = security.snapshot(document);
         if serde_json::to_vec(&snapshot)
             .expect("snapshot is serializable")
             .len()
@@ -218,12 +231,19 @@ impl PreparedRun {
         {
             return Err(invalid("Redacted snapshot exceeds the run report budget"));
         }
+        let user = user::UserContext::new(
+            document,
+            plan.auth(),
+            session,
+            security,
+            options.max_response_bytes,
+        )
+        .map_err(|error| invalid(&error.message))?;
         Ok(Self {
             plan,
             document: document.clone(),
-            session,
+            user,
             options,
-            redactor,
             snapshot,
         })
     }
@@ -245,7 +265,8 @@ impl PreparedRun {
         cancel: CancellationToken,
     ) -> RunReport {
         let user = self
-            .redactor
+            .user
+            .security
             .text(&format!("{}:1", self.document.groups[0].id));
         let mut trace = Trace::new(
             run_id,
@@ -261,7 +282,7 @@ impl PreparedRun {
             .emit(
                 None,
                 EventKind::RunStarted {
-                    scenario_id: self.redactor.text(self.plan.scenario_id()),
+                    scenario_id: self.user.security.text(self.plan.scenario_id()),
                 },
                 false,
             )
@@ -272,7 +293,7 @@ impl PreparedRun {
                 status = RunStatus::Cancelled;
                 break;
             }
-            let id = self.redactor.text(node.id());
+            let id = self.user.security.text(node.id());
             let result = async {
                 if !trace
                     .emit(
@@ -286,74 +307,55 @@ impl PreparedRun {
                 {
                     return Err(report_limit());
                 }
-                if let WorkflowNode::Http { config, .. } = node {
-                    let request = self
-                        .session
-                        .prepare(config, &self.document.environment.variables)
-                        .map_err(RunFailure::from)?;
-                    self.redactor.learn_headers(request.headers());
-                    let request_body_bytes = request
-                        .body
-                        .as_ref()
-                        .map(|v| serde_json::to_vec(v).expect("JSON is serializable").len())
-                        .unwrap_or_default();
-                    let event = EventKind::RequestSent {
-                        method: request.method().into(),
-                        url: self.redactor.url(request.url().as_str()),
-                        headers: self.redactor.headers(request.headers()),
-                        body: self.redactor.body(
-                            request.body.as_ref(),
-                            request_body_bytes,
-                            false,
-                            self.options.max_preview_bytes,
-                        ),
-                    };
+                user::check_cancel(&cancel)?;
+                match node {
+                WorkflowNode::Http { config, .. } => {
+                    let request = self.user.prepare_http(config, &self.document.environment.variables, &cancel)?;
+                    let event = self.user.security.request_event(node.id(), &request, self.options.max_preview_bytes);
                     if !trace.emit(Some(&id), event, false).await {
                         return Err(report_limit());
                     }
+                    user::check_cancel(&cancel)?;
                     trace.summary.requests += 1;
                     let response = tokio::select! {
                         biased;
                         _ = trace.sender.closed() => { cancel.cancel(); return Err(RunFailure { kind: "cancelled".into(), message: "Run cancelled: event receiver closed".into() }); },
-                        response = self.session.execute(request, &cancel) => response.map_err(RunFailure::from)?,
+                        response = self.user.session.execute(request, &cancel) => response.map_err(RunFailure::from)?,
                     };
-                    self.redactor.learn_headers(&response.headers);
-                    let body: Option<Value> = if response.truncated {
-                        None
-                    } else {
-                        serde_json::from_slice(&response.body).ok()
-                    };
-                    if let Some(body) = &body {
-                        self.redactor.learn(body);
-                    }
                     trace.summary.responses += 1;
                     if response.status >= 400 {
                         trace.summary.http_error_responses += 1;
                     }
-                    let event = EventKind::ResponseReceived {
-                        status: response.status,
-                        headers: self.redactor.headers(&response.headers),
-                        body: self.redactor.body(
-                            body.as_ref(),
-                            response.body.len(),
-                            response.truncated,
-                            self.options.max_preview_bytes,
-                        ),
-                    };
+                    let event = self.user.security.response_event(node.id(), &response, self.options.max_preview_bytes);
                     if !trace.emit(Some(&id), event, false).await {
                         return Err(report_limit());
                     }
+                    self.user.retain_response(node.id(), response, &cancel)?;
                 }
+                WorkflowNode::Extract { .. } => { self.user.extract(node.id(), &cancel)?; }
+                WorkflowNode::SetSession { config, .. } => {
+                    self.user.update_session(config, &cancel)?;
+                    let event = EventKind::SessionUpdated {
+                        set_headers: config.set_headers.keys().map(|name| self.user.security.text(&name.to_ascii_lowercase())).collect(),
+                        removed_headers: config.remove_headers.iter().map(|name| self.user.security.text(&name.to_ascii_lowercase())).collect(),
+                    };
+                    if !trace.emit(Some(&id), event, false).await { return Err(report_limit()); }
+                }
+                WorkflowNode::Start { .. } | WorkflowNode::End { .. } => {}
+                }
+                user::check_cancel(&cancel)?;
                 if !trace
                     .emit(Some(&id), EventKind::StepFinished {}, false)
                     .await
                 {
                     return Err(report_limit());
                 }
+                self.user.release_after(node.id());
                 Ok::<(), RunFailure>(())
             }
             .await;
-            if let Err(error) = result {
+            if let Err(mut error) = result {
+                error.message = self.user.security.text(&error.message);
                 status = if cancel.is_cancelled() || error.kind == "cancelled" {
                     RunStatus::Cancelled
                 } else {
@@ -386,7 +388,7 @@ impl PreparedRun {
             .await;
         trace.summary.elapsed_ns = trace.elapsed();
         RunReport {
-            report_version: 1,
+            report_version: 2,
             run_id: trace.run_id,
             status,
             snapshot: trace.snapshot,
@@ -397,6 +399,19 @@ impl PreparedRun {
             delivery_dropped_events: trace.dropped,
         }
     }
+}
+// Dynamic outputs do not exist during preflight. Validate static HTTP
+// settings now; materialized bodies/effective headers are checked before send.
+fn static_request(
+    session: &HttpSession,
+    config: &HttpConfig,
+    variables: &std::collections::BTreeMap<String, Value>,
+) -> Result<PreparedRequest, HttpError> {
+    let mut config = config.clone();
+    if matches!(&config.body, Some(RequestBody::JsonTemplate { .. })) {
+        config.body = None;
+    }
+    session.prepare(&config, variables)
 }
 fn report_limit() -> RunFailure {
     RunFailure {

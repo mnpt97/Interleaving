@@ -65,6 +65,29 @@ mod tests {
     }
 
     #[test]
+    fn auth_validation_reuses_core_semantics_and_expression_diagnostics() {
+        let json = include_str!("../../../../scenarios/examples/auth-login.interl.json");
+        let yaml = include_str!("../../../../scenarios/examples/auth-login.interl.yaml");
+        assert!(validate_scenario(json, ScenarioFormat::Json).valid);
+        assert!(validate_scenario(yaml, ScenarioFormat::Yaml).valid);
+        let json = json.replace("response.body.accessToken", "response.body.token()");
+        let yaml = yaml.replace("response.body.accessToken", "response.body.token()");
+        let left = validate_scenario(&json, ScenarioFormat::Json);
+        let right = validate_scenario(&yaml, ScenarioFormat::Yaml);
+        assert!(!left.valid && !right.valid);
+        assert_eq!(left.diagnostics, right.diagnostics);
+        assert_eq!(
+            left.diagnostics,
+            interl_core::inspect_scenario(&json, ScenarioFormat::Json).diagnostics
+        );
+        assert_eq!(left.diagnostics[0].expression_line, Some(1));
+        assert_eq!(
+            left.diagnostics[0].node_id.as_deref(),
+            Some("extract-token")
+        );
+    }
+
+    #[test]
     fn opening_uses_the_shared_loader_and_returns_source_metadata() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../scenarios/examples/hello-api.interl.yaml");

@@ -154,6 +154,13 @@ fn rejects_bad_templates_and_limits_without_network() {
     let mut bad = config.clone();
     bad.timeout_ms = Some(u64::MAX);
     assert!(session.prepare(&bad, &Default::default()).is_err());
+    bad.timeout_ms = None;
+    bad.body = Some(RequestBody::JsonTemplate {
+        fields: Default::default(),
+    });
+    let error = session.prepare(&bad, &Default::default()).err().unwrap();
+    assert_eq!(error.kind, HttpErrorKind::Configuration);
+    assert!(error.message.contains("must be resolved by the engine"));
 }
 #[tokio::test]
 async fn connection_failure_has_static_safe_diagnostic() {

@@ -1,0 +1,66 @@
+# Single-user bearer login. Set the referenced environment variables before running.
+schemaVersion: 1
+id: auth-login
+name: Single-user bearer login
+environment:
+  variables: {}
+clientProfiles:
+  - id: api
+    baseUrl: http://127.0.0.1:8080
+    timeoutMs: 10000
+    headers:
+      accept: application/json
+identities:
+  - id: alice
+    credentials:
+      username: { source: env, name: INTERL_ALICE_USERNAME }
+      password: { source: env, name: INTERL_ALICE_PASSWORD }
+groups:
+  - id: user
+    clientProfileId: api
+    count: 1
+    identityAssignment: { mode: shared, identityId: alice }
+workflow:
+  nodes:
+    - { id: start, type: start }
+    - id: login
+      type: http
+      config:
+        method: POST
+        path: /auth/login
+        body:
+          kind: jsonTemplate
+          fields:
+            username: { source: identity, field: username }
+            password: { source: identity, field: password }
+    - id: extract-token
+      type: extract
+      config:
+        sourceNodeId: login
+        expression: response.body.accessToken
+        output: token
+    - id: apply-token
+      type: setSession
+      config:
+        setHeaders:
+          authorization: { source: extraction, nodeId: extract-token, name: token, prefix: "Bearer " }
+        removeHeaders: []
+    - id: authenticated
+      type: http
+      config: { method: GET, path: /auth/me }
+    - { id: end, type: end }
+  edges:
+    - { from: start, to: login }
+    - { from: login, to: extract-token }
+    - { from: extract-token, to: apply-token }
+    - { from: apply-token, to: authenticated }
+    - { from: authenticated, to: end }
+assertions: []
+layout:
+  positions:
+    start: { x: 80, y: 160 }
+    login: { x: 340, y: 160 }
+    extract-token: { x: 600, y: 160 }
+    apply-token: { x: 860, y: 160 }
+    authenticated: { x: 1120, y: 160 }
+    end: { x: 1380, y: 160 }

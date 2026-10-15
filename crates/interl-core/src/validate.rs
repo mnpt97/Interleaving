@@ -1,7 +1,7 @@
 use crate::diagnostic::pointer;
 use crate::{
-    parse_scenario, Diagnostic, ErrorCategory, IdentityAssignment, ScenarioDocument,
-    ScenarioFormat, ValidationError, WorkflowNode,
+    parse_scenario, AuthPlan, Diagnostic, ErrorCategory, ScenarioDocument, ScenarioFormat,
+    ValidationError, WorkflowNode,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -33,16 +33,21 @@ pub fn inspect_scenario(source: &str, format: ScenarioFormat) -> ValidationResul
 }
 
 #[derive(Default)]
-struct Errors(Vec<Diagnostic>);
+pub(crate) struct Errors(pub(crate) Vec<Diagnostic>);
 impl Errors {
-    fn add(&mut self, code: &str, path: &str, message: &str, node: Option<&str>) {
+    pub(crate) fn push(&mut self, diagnostic: Diagnostic) {
+        if self.0.len() < 100 {
+            self.0.push(diagnostic);
+        }
+    }
+    pub(crate) fn add(&mut self, code: &str, path: &str, message: &str, node: Option<&str>) {
         if self.0.len() < 100 {
             let mut diagnostic = Diagnostic::new(ErrorCategory::Validation, code, path, message);
             diagnostic.node_id = node.map(str::to_owned);
             self.0.push(diagnostic);
         }
     }
-    fn ids<'a>(&mut self, items: impl Iterator<Item = &'a str>, path: &str) -> bool {
+    pub(crate) fn ids<'a>(&mut self, items: impl Iterator<Item = &'a str>, path: &str) -> bool {
         let mut seen = BTreeSet::new();
         let mut valid = true;
         for (index, id) in items.enumerate() {
@@ -82,6 +87,12 @@ impl Errors {
 }
 
 pub fn validate_scenario(scenario: &ScenarioDocument) -> Result<(), Vec<ValidationError>> {
+    validate_and_compile_auth(scenario).map(|_| ())
+}
+
+pub(crate) fn validate_and_compile_auth(
+    scenario: &ScenarioDocument,
+) -> Result<AuthPlan, Vec<ValidationError>> {
     let mut errors = Errors::default();
     if scenario.schema_version != 1 {
         errors.add(
@@ -178,19 +189,6 @@ pub fn validate_scenario(scenario: &ScenarioDocument) -> Result<(), Vec<Validati
                 None,
             );
         }
-        if matches!(
-            &group.identity_assignment,
-            IdentityAssignment::Shared {
-                identity_id: Some(_)
-            }
-        ) {
-            errors.add(
-                "unsupportedFeature",
-                &format!("{path}/identityAssignment/identityId"),
-                "The current schema supports anonymous shared assignment only; use null.",
-                None,
-            );
-        }
     }
     let nodes = &scenario.workflow.nodes;
     let unique = errors.ids(nodes.iter().map(WorkflowNode::id), "/workflow/nodes");
@@ -245,7 +243,7 @@ pub fn validate_scenario(scenario: &ScenarioDocument) -> Result<(), Vec<Validati
         }
     }
     if errors.0.is_empty() {
-        Ok(())
+        crate::auth_validation::validate_auth(scenario)
     } else {
         Err(errors.0)
     }
@@ -341,13 +339,15 @@ fn validate_graph(scenario: &ScenarioDocument, errors: &mut Errors) {
         let expected = match node {
             WorkflowNode::Start { .. } => (0, 1),
             WorkflowNode::End { .. } => (1, 0),
-            WorkflowNode::Http { .. } => (1, 1),
+            WorkflowNode::Http { .. }
+            | WorkflowNode::Extract { .. }
+            | WorkflowNode::SetSession { .. } => (1, 1),
         };
         if (incoming[index], outgoing[index].len()) != expected {
             errors.add(
                 "nonLinearGraph",
                 &format!("/workflow/nodes/{index}"),
-                "Node connections must form a single start → HTTP… → end chain.",
+                "Node connections must form a single sequential start → workflow steps → end chain.",
                 Some(node.id()),
             );
         }
