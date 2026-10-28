@@ -543,3 +543,43 @@ async fn reusable_v2_adapter_formats_and_exports_match_headless() {
     }
     assert_eq!(reports[0], reports[1]);
 }
+
+#[tokio::test]
+async fn exclusive_routes_have_identical_adapter_and_headless_observations() {
+    let server = support::TestServer::start().await;
+    let state = RunRegistry::default();
+    let provider = Provider::default();
+    let mut reports = Vec::new();
+    for (source, format) in [
+        (
+            include_str!("../../../../scenarios/examples/exclusive-routing.interl.json"),
+            ScenarioFormat::Json,
+        ),
+        (
+            include_str!("../../../../scenarios/examples/exclusive-routing.interl.yaml"),
+            ScenarioFormat::Yaml,
+        ),
+    ] {
+        let source = source.replace("http://127.0.0.1:8080", &server.base_url);
+        let handle = state
+            .start(|| prepare_with_provider(&source, format, RunOptions::default(), &provider))
+            .unwrap();
+        let report = complete(&state, handle).await;
+        assert_eq!(report.status, RunStatus::Passed);
+        assert!(
+            report
+                .events
+                .iter()
+                .any(|e| matches!(e.event, EventKind::RouteSelected { .. }))
+        );
+        reports.push(normalized(&report));
+        let doc = interl_core::parse_document(&source, format).unwrap();
+        let handle = PreparedRun::new(&doc, RunOptions::default())
+            .unwrap()
+            .start(CancellationToken::new());
+        let (_, result) = forward_events(handle, |_| true).await;
+        reports.push(normalized(&result.unwrap()));
+    }
+    assert!(reports.windows(2).all(|pair| pair[0] == pair[1]));
+    assert_eq!(provider.calls.load(Ordering::Relaxed), 0);
+}

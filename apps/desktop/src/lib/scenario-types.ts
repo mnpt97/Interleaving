@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { documentSchema, workflowNodeSchema } from './scenario-v2-types';
-export { documentSchema, workflowNodeSchema, templateValueSchema, sessionHeaderSchema } from './scenario-v2-types';
+import { documentSchema, workflowNodeSchema } from './scenario-document';
+export { documentSchema, workflowNodeSchema, templateValueSchema, sessionHeaderSchema } from './scenario-document';
 // Wire shapes only. Rust owns semantic validation.
 export const diagnosticSchema = z.object({
   category: z.string(),
@@ -38,4 +38,8 @@ export type ScenarioFormat = 'json' | 'yaml';
 export function iterationWorkflow(document: ScenarioDocument): WorkflowDefinition | undefined {
   const id = document.groups[0]?.lifecycle.iteration.workflowId;
   return document.workflows.find((workflow) => workflow.id === id) ?? document.workflows[0];
+}
+
+export function selectedWorkflow(document: ScenarioDocument, id: string | null) {
+  return document.workflows.find((w) => w.id === id) ?? iterationWorkflow(document);
 }

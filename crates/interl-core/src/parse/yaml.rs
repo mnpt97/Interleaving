@@ -1,9 +1,13 @@
+//! Event-driven reader for the deliberately restricted, JSON-compatible YAML subset.
+
 use super::{Budget, ScenarioLimits};
 use crate::diagnostic::pointer;
 use crate::{Diagnostic, ErrorCategory, ScenarioLoadError};
 use saphyr_parser::{Event, Parser, ScalarStyle};
 use serde_json::{Map, Value};
 
+/// An unfinished sequence or mapping on the explicit parser stack.
+/// Mappings keep an optional pending key until the corresponding value arrives.
 enum Collection {
     Array(Vec<Value>),
     Object {
@@ -11,11 +15,13 @@ enum Collection {
         key: Option<String>,
     },
 }
+/// Track a container's JSON Pointer and partially constructed values.
 struct Frame {
     path: String,
     collection: Collection,
 }
 
+/// Compute the next value's pointer from the active container and its pending key/index.
 fn next_path(stack: &[Frame]) -> String {
     match stack.last() {
         Some(Frame {
@@ -31,6 +37,9 @@ fn next_path(stack: &[Frame]) -> String {
     }
 }
 
+/// Interpret quoted text as strings and accept only unambiguous JSON-like plain scalars.
+/// Ambiguous YAML booleans/numbers/dates must be quoted; no implicit general YAML
+/// type coercion is performed.
 fn scalar(text: &str, style: ScalarStyle, path: &str) -> Result<Value, Diagnostic> {
     if style != ScalarStyle::Plain {
         return Ok(Value::String(text.into()));
@@ -78,6 +87,9 @@ fn scalar(text: &str, style: ScalarStyle, path: &str) -> Result<Value, Diagnosti
     Ok(Value::String(text.into()))
 }
 
+/// Move a completed value into its parent or install the document root.
+/// `Option::take` consumes a pending map key and leaves `None`, alternating key/value
+/// assembly without cloning the key. A second root is rejected.
 fn attach(
     value: Value,
     stack: &mut [Frame],
@@ -132,6 +144,9 @@ fn attach(
     Ok(())
 }
 
+/// Consume YAML events with an explicit stack and shared admission budgets.
+/// Reject duplicate keys, nonstring keys, aliases, anchors, tags, merges, and multiple
+/// documents. The explicit stack keeps nesting under budget without recursive descent.
 pub(super) fn parse(source: &str, limits: ScenarioLimits) -> Result<Value, ScenarioLoadError> {
     let mut budget = Budget::new(limits);
     let mut stack = Vec::<Frame>::new();

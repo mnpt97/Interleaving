@@ -2,6 +2,7 @@
 name = "interl-core"
 
 [dependencies]
+schemars = "=0.8.22"
 dsntk-feel = "=0.3.0"
 dsntk-feel-parser = "=0.3.0"
 saphyr-parser = "0.1"

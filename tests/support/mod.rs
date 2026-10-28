@@ -1,5 +1,6 @@
 #![allow(dead_code)] // Shared local-server fixture; each crate uses a subset.
 pub mod auth;
+pub mod long_poll;
 use axum::{
     body::Bytes,
     extract::State,
@@ -35,6 +36,7 @@ impl TestServer {
         let state = ServerState::default();
         let app = axum::Router::new()
             .route("/health", get(|| async { axum::Json(serde_json::json!({"status":"ok"})) }))
+            .route("/routing-body", get(|| async { axum::Json(serde_json::json!({"value":{"status":true,"attempts":3,"label":"route-private-label","empty":null}})) }))
             .route("/echo", get(echo).post(echo))
             .route(
                 "/not-found",
@@ -71,7 +73,7 @@ impl TestServer {
                     axum::Json(serde_json::json!({"password":"response-secret", "echo":"response-secret", "ok":true}))
                 }),
             )
-            .with_state(state.clone()).merge(auth::router(auth.clone()));
+            .with_state(state.clone()).merge(auth::router(auth.clone())).merge(long_poll::router());
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind local test server");

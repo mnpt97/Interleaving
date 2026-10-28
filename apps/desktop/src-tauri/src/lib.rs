@@ -17,6 +17,7 @@ pub fn run() {
             scenario::validate_scenario,
             scenario::open_scenario,
             scenario::save_scenario_json,
+            scenario::save_scenario_draft_json,
             execution::start_scenario,
             execution::cancel_scenario,
             execution::save_run_report

@@ -17,27 +17,17 @@
       }
     }
   ],
-  "identities": [],
   "groups": [
     {
       "id": "visitors",
       "clientProfileId": "api",
-      "identityAssignment": {
-        "mode": "shared",
-        "identityId": null
-      },
-      "executor": {
-        "kind": "once"
-      },
       "lifecycle": {
         "iteration": {
-          "workflowId": "main",
-          "inputs": {}
+          "workflowId": "main"
         }
       }
     }
   ],
-  "assertions": [],
   "workflows": [
     {
       "nodes": [
@@ -94,8 +84,6 @@
       ],
       "id": "main",
       "name": "Single-user HTTP workflow",
-      "inputs": {},
-      "outputs": {},
       "layout": {
         "positions": {
           "start": {

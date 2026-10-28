@@ -63,7 +63,7 @@ fn schema_is_strict_and_future_declarations_are_rejected() {
         assert!(has(&invalid(v), "invalidSchema"));
     }
     let mut v = value();
-    v["groups"][0]["identityAssignment"]["identityId"] = json!("identity");
+    v["groups"][0]["identityAssignment"] = json!({"mode":"shared","identityId":"identity"});
     assert!(has(&invalid(v), "missingIdentity"));
     let mut v = value();
     v["workflows"][0]["nodes"][0]["config"] = json!({});
@@ -131,9 +131,9 @@ fn expression_strings_and_json_body_are_preserved_without_evaluation() {
         json!({"kind":"json","value":{"expression":text,"nested":[true,null,3]}});
     let scenario = parse_scenario(&v.to_string(), ScenarioFormat::Json).unwrap();
     assert_eq!(scenario.environment.variables["expression"], text);
-    let yaml = YAML.replace(
-        "variables: {}",
-        &format!("variables:\n    expression: \"{text}\""),
+    let yaml = format!(
+        "{YAML}\nenvironment:\n  variables:\n    expression: {}\n",
+        serde_json::to_string(text).unwrap()
     );
     assert_eq!(
         parse_scenario(&yaml, ScenarioFormat::Yaml)

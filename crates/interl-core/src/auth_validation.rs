@@ -1,7 +1,11 @@
-use crate::compile::{ordered_indices, AuthPlan, CompiledExtraction, RequiredSecret};
+//! Compile workflow-local extraction/capture plans and validate explicit auth references.
+//! No credentials are read; the engine resolves only the dependencies returned by compilation.
+
 use crate::diagnostic::pointer;
 use crate::expressions::compile_expression;
-use crate::validate::Errors;
+use crate::graph_validation::ordered_indices;
+use crate::graph_validation::Errors;
+use crate::{AuthPlan, CompiledExtraction, RequiredSecret};
 use crate::{
     Diagnostic, ErrorCategory, IdentityAssignment, ProgramBody as RequestBody, ScenarioDocument,
     SecretReference, SessionHeaderValue, TemplateValue, ValidationError, WorkflowDefinition,
@@ -9,9 +13,13 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-struct Check<'a> {
+/// Track one borrowed workflow, its connected order, diagnostics, and auth lifetimes.
+/// Indices and positions serve different purposes: indices address the source array,
+/// while positions compare when nodes execute along the validated chain.
+struct AuthValidationContext<'a> {
     workflow: &'a WorkflowDefinition,
     positions: BTreeMap<&'a str, usize>,
+    dominators: BTreeMap<&'a str, BTreeSet<&'a str>>,
     indices: BTreeMap<&'a str, usize>,
     errors: Errors,
     plan: AuthPlan,
@@ -19,7 +27,8 @@ struct Check<'a> {
     output_uses: BTreeMap<String, String>,
 }
 
-impl Check<'_> {
+impl AuthValidationContext<'_> {
+    /// Validate bounded authentication-related identifiers without echoing their contents.
     fn name(&mut self, name: &str, path: &str, node: Option<&str>) {
         if name.trim().is_empty() || name.len() > 128 {
             self.errors.add(
@@ -30,15 +39,19 @@ impl Check<'_> {
             );
         }
     }
+    /// Report a template resource-limit failure with local-node context.
     fn limit(&mut self, path: &str, node: &str) {
         let mut error = Diagnostic::new(ErrorCategory::ResourceLimit, "templateLimit", path, "JSON templates allow at most 256 composition nodes and depth 32, including the body object.");
         error.node_id = Some(node.into());
         self.errors.push(error);
     }
+    /// Validate and record a referenced credential field; never look up its value.
     fn identity_source(&mut self, field: &str, path: &str, node: &str) {
         self.name(field, &pointer(path, "field"), Some(node));
         self.identity_fields.insert(field.to_owned());
     }
+    /// Resolve a local producer index only if it executes before this consumer.
+    /// `Option<usize>` lets later checks stop cleanly after recording a diagnostic.
     fn earlier_source(&mut self, source: &str, path: &str, node: &str) -> Option<usize> {
         self.name(source, path, Some(node));
         let Some(&index) = self.indices.get(source) else {
@@ -50,17 +63,23 @@ impl Check<'_> {
             );
             return None;
         };
-        if self.positions[source] >= self.positions[node] {
+        if self.positions[source] >= self.positions[node]
+            || !self
+                .dominators
+                .get(node)
+                .is_some_and(|producers| producers.contains(source))
+        {
             self.errors.add("forwardReference", path, "Source must precede this node in workflow connectivity; self and forward references are unavailable.", Some(node));
             return None;
         }
         Some(index)
     }
+    /// Require an earlier extraction with the declared output name and track its last consumer.
     fn output_source(&mut self, source: &str, name: &str, path: &str, node: &str) {
         self.name(name, &pointer(path, "name"), Some(node));
         if let Some(index) = self.earlier_source(source, &pointer(path, "nodeId"), node) {
             match &self.workflow.nodes[index] {
-                WorkflowNode::Extract { config, .. } if config.output == name => {
+                WorkflowNode::Extract { config, .. } if config.type_of(name).is_some() => {
                     self.output_uses.insert(source.to_owned(), node.to_owned());
                 }
                 WorkflowNode::Extract { .. } => self.errors.add(
@@ -78,6 +97,8 @@ impl Check<'_> {
             }
         }
     }
+    /// Walk explicit template descriptors, checking composition budgets and scalar dependencies.
+    /// Literal payload objects remain uninterpreted; only tagged template nodes are traversed.
     fn template(
         &mut self,
         fields: &BTreeMap<String, TemplateValue>,
@@ -142,6 +163,7 @@ impl Check<'_> {
         }
         sensitive
     }
+    /// Check HTTP token syntax and the header-name byte bound.
     fn header_name(&mut self, name: &str, path: &str, node: &str) {
         if name.is_empty()
             || name.len() > 128
@@ -157,6 +179,7 @@ impl Check<'_> {
             );
         }
     }
+    /// Validate one header source and prefix, recording any dependency or retained output use.
     fn header_value(&mut self, value: &SessionHeaderValue, path: &str, node: &str) {
         let prefix = match value {
             SessionHeaderValue::Literal { value, prefix } => {
@@ -187,18 +210,25 @@ impl Check<'_> {
     }
 }
 
+/// Reject forbidden header control characters while allowing horizontal tabs.
 fn invalid_header_text(value: &str) -> bool {
     value.bytes().any(|b| (b < 32 && b != b'\t') || b == 127)
 }
 
+/// Validate credential/extraction/session descriptors and compile a workflow-local auth plan.
+///
+/// The graph must already be structured and valid before this function derives execution
+/// positions. It compiles only the bounded FEEL subset, marks sensitive captures,
+/// and records response/output last uses without evaluating runtime data.
 pub(crate) fn validate_auth(
     scenario: &ScenarioDocument,
     workflow: &WorkflowDefinition,
 ) -> Result<AuthPlan, Vec<ValidationError>> {
-    // Base graph validation has already established a single connected chain.
+    // Base graph validation has already established a connected structured DAG.
     let ordered = ordered_indices(workflow);
-    let mut check = Check {
+    let mut check = AuthValidationContext {
         workflow,
+        dominators: crate::graph_validation::dominators(workflow),
         positions: ordered
             .iter()
             .enumerate()
@@ -300,7 +330,79 @@ pub(crate) fn validate_auth(
                     &format!("/workflow/nodes/{index}/id"),
                     Some(node_id),
                 );
-                check.name(&config.output, &pointer(&path, "output"), Some(node_id));
+                if config.outputs.len() > 32 {
+                    check.errors.add(
+                        "extractionOutputLimit",
+                        &pointer(&path, "outputs"),
+                        "An Extract node supports at most 32 outputs.",
+                        Some(node_id),
+                    );
+                }
+                if !config.outputs.is_empty()
+                    && (!config.expression.is_empty() || !config.output.is_empty())
+                {
+                    check.errors.add(
+                        "mixedExtractionConfig",
+                        &path,
+                        "Use either named outputs or a single expression/output pair.",
+                        Some(node_id),
+                    );
+                }
+                let mut outputs = BTreeMap::new();
+                for (name, expression_text, output_type) in config.entries() {
+                    let output_path = if config.outputs.is_empty() {
+                        pointer(&path, "output")
+                    } else {
+                        pointer(&pointer(&path, "outputs"), name)
+                    };
+                    check.name(name, &output_path, Some(node_id));
+                    let expression_path = if config.outputs.is_empty() {
+                        pointer(&path, "expression")
+                    } else {
+                        pointer(&output_path, "expression")
+                    };
+                    match compile_expression(expression_text) {
+                        Ok(expression) => {
+                            outputs.insert(
+                                name.to_owned(),
+                                crate::CompiledExtractOutput {
+                                    expression,
+                                    output_type,
+                                },
+                            );
+                        }
+                        Err(error) => {
+                            let category = if error.code == "expressionLimit" {
+                                ErrorCategory::ResourceLimit
+                            } else {
+                                ErrorCategory::Validation
+                            };
+                            let mut diagnostic = Diagnostic::new(
+                                category,
+                                error.code,
+                                &expression_path,
+                                error.message,
+                            );
+                            diagnostic.node_id = Some(node_id.into());
+                            let (mut line, mut column) = (1, 1);
+                            for (_, ch) in expression_text
+                                .char_indices()
+                                .take_while(|(offset, _)| *offset < error.offset)
+                            {
+                                if ch == '\n' {
+                                    line += 1;
+                                    column = 1;
+                                } else {
+                                    column += 1;
+                                }
+                            }
+                            diagnostic.expression_line = Some(line);
+                            diagnostic.expression_column = Some(column);
+                            check.errors.push(diagnostic);
+                        }
+                    }
+                }
+
                 if let Some(source_index) = check.earlier_source(
                     &config.source_node_id,
                     &pointer(&path, "sourceNodeId"),
@@ -320,50 +422,14 @@ pub(crate) fn validate_auth(
                         );
                     }
                 }
-                match compile_expression(&config.expression) {
-                    Ok(expression) => {
-                        check.plan.extractions.insert(
-                            node_id.into(),
-                            CompiledExtraction {
-                                source_node_id: config.source_node_id.clone(),
-                                output: config.output.clone(),
-                                expression,
-                                last_use_node_id: node_id.into(),
-                            },
-                        );
-                    }
-                    Err(error) => {
-                        let category = if error.code == "expressionLimit" {
-                            ErrorCategory::ResourceLimit
-                        } else {
-                            ErrorCategory::Validation
-                        };
-                        let mut diagnostic = Diagnostic::new(
-                            category,
-                            error.code,
-                            &pointer(&path, "expression"),
-                            error.message,
-                        );
-                        diagnostic.node_id = Some(node_id.into());
-                        let mut line = 1;
-                        let mut column = 1;
-                        for (_, ch) in config
-                            .expression
-                            .char_indices()
-                            .take_while(|(index, _)| *index < error.offset)
-                        {
-                            if ch == '\n' {
-                                line += 1;
-                                column = 1;
-                            } else {
-                                column += 1;
-                            }
-                        }
-                        diagnostic.expression_line = Some(line);
-                        diagnostic.expression_column = Some(column);
-                        check.errors.push(diagnostic);
-                    }
-                }
+                check.plan.extractions.insert(
+                    node_id.into(),
+                    CompiledExtraction {
+                        source_node_id: config.source_node_id.clone(),
+                        outputs,
+                        last_use_node_id: node_id.into(),
+                    },
+                );
             }
             WorkflowNode::SetSession { config, .. } => {
                 check.name(
@@ -398,7 +464,8 @@ pub(crate) fn validate_auth(
                     let path = pointer(&pointer(&path, "removeHeaders"), &index.to_string());
                     check.header_name(name, &path, node_id);
                     let normalized = name.to_ascii_lowercase();
-                    if !removed.insert(normalized.clone()) {
+                    let conflicting = set.contains(&normalized);
+                    if !removed.insert(normalized) {
                         check.errors.add(
                             "duplicateHeaderOperation",
                             &path,
@@ -406,7 +473,7 @@ pub(crate) fn validate_auth(
                             Some(node_id),
                         );
                     }
-                    if set.contains(&normalized) {
+                    if conflicting {
                         check.errors.add(
                             "conflictingHeaderOperation",
                             &path,

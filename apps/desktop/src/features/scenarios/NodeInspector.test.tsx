@@ -14,6 +14,10 @@ beforeEach(() =>
     diagnostics: [],
     status: 'valid',
     layoutDirty: false,
+    mode: 'edit',
+    inspectorTab: 'node',
+    focusedFieldPath: null,
+    formErrors: {},
   })
 );
 
@@ -82,7 +86,7 @@ it('shows session operations and references while hiding literal values and pref
   expect(screen.queryByText(/private-literal-marker|private-prefix-marker/)).not.toBeInTheDocument();
 });
 
-it('inspects nested JSON template references while leaving literal content hidden', () => {
+it('inspects nested JSON template references in View while leaving literal content hidden', () => {
   const document = structuredClone(authDocument);
   const node = document.workflows[0].nodes[1];
   if (node.type !== 'http' || node.config.body?.kind !== 'jsonTemplate') throw new Error('Missing template fixture');
@@ -93,7 +97,7 @@ it('inspects nested JSON template references while leaving literal content hidde
       { source: 'extraction', nodeId: 'prior', name: 'output' },
     ],
   };
-  useScenarioStore.setState({ document, selectedId: 'login' });
+  useScenarioStore.setState({ document, selectedId: 'login', mode: 'view' });
   render(<NodeInspector />);
   expect(screen.getByLabelText('Request value references')).toHaveTextContent('password: identity.password');
   expect(screen.getByLabelText('Request value references')).toHaveTextContent('extra[1]: prior.output');

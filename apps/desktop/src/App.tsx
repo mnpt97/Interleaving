@@ -1,14 +1,40 @@
-import { iterationWorkflow } from './lib/scenario-types';
+import { LifecycleSidebar } from './features/scenarios/LifecycleSidebar';
+import { phases, ownsPhase } from './features/scenarios/lifecycle';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
+import { RunSidebar } from './features/runs/RunSidebar';
+import { useRunView } from './features/runs/useRunView';
+import { useDraftValidation } from './features/scenarios/useDraftValidation';
+import { ScenarioBaseUrl } from './features/scenarios/targets';
+import { selectedWorkflow } from './lib/scenario-types';
 import { lazy, Suspense, useEffect } from 'react';
-import { CheckCircle2, FileJson2, FolderOpen, GitFork, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import {
+  CheckCircle2,
+  Save,
+  Undo2,
+  Redo2,
+  CirclePlus,
+  FolderOpen,
+  GitFork,
+  PanelRightClose,
+  PanelRightOpen,
+} from 'lucide-react';
 import { Button } from './components/ui/button';
 import { ThemeControl } from './components/ThemeControl';
 import { desktopAvailable } from './lib/tauri';
 import { NodeInspector } from './features/scenarios/NodeInspector';
 import { WorkspacePanels } from './components/WorkspacePanels';
+import { PanelResizeHandle } from './components/PanelResizeHandle';
+import { useWorkspaceLayout } from './components/useWorkspaceLayout';
 import { useScenarioStore } from './features/scenarios/store';
 import './App.css';
-import { nodePresentation } from './features/scenarios/node-presentation';
+
+import { UnsavedChangesDialog } from './features/scenarios/UnsavedChangesDialog';
+import { activeRun, useRunStore } from './features/runs/store';
+import { presentationFor, nodeName } from './features/scenarios/node-presentation';
+
+const AddNodePopover = lazy(() =>
+  import('./features/scenarios/AddNodePopover').then((module) => ({ default: module.AddNodePopover }))
+);
 
 const ScenarioCanvas = lazy(() =>
   import('./features/scenarios/ScenarioCanvas').then((module) => ({ default: module.ScenarioCanvas }))
@@ -16,12 +42,76 @@ const ScenarioCanvas = lazy(() =>
 
 function App() {
   const state = useScenarioStore();
+  useDraftValidation();
+  const run = useRunStore();
+  const runView = useRunView();
+  const layout = useWorkspaceLayout(state.inspectorOpen);
+  const editing = state.mode === 'edit';
+  const stagedConfiguration = Object.keys(state.formErrors).some(
+    (key) => key.startsWith('configuration:') || key.startsWith('fragment:') || key.startsWith('authentication:')
+  );
+  const running = activeRun(run.status);
   useEffect(() => {
     if (desktopAvailable) void useScenarioStore.getState().loadExample();
   }, []);
+  useEffect(() => {
+    const close = (event: BeforeUnloadEvent) => {
+      const current = useScenarioStore.getState();
+      if (current.dirty || Object.keys(current.formErrors).length) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', close);
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    if (desktopAvailable)
+      void import('@tauri-apps/api/window')
+        .then(async ({ getCurrentWindow }) => {
+          const stop = await getCurrentWindow().onCloseRequested(async (event) => {
+            event.preventDefault();
+            if (await useScenarioStore.getState().requestClose()) await getCurrentWindow().destroy();
+          });
+          if (disposed) stop();
+          else unlisten = stop;
+        })
+        .catch(() =>
+          useScenarioStore.setState({ error: 'Close protection could not start. Save changes before closing.' })
+        );
+    return () => {
+      disposed = true;
+      unlisten?.();
+      window.removeEventListener('beforeunload', close);
+    };
+  }, []);
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      const current = useScenarioStore.getState();
+      if (current.mode !== 'edit' || current.pendingChange || current.busy || !(event.metaKey || event.ctrlKey)) return;
+      const field =
+        event.target instanceof HTMLElement &&
+        (event.target.closest('input, textarea, select, [role="combobox"], [role="listbox"], [role="option"]') ||
+          event.target.isContentEditable);
+      if (event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        if (desktopAvailable) void current.save();
+      }
+      if (!field && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) current.redo();
+        else current.undo();
+      }
+      if (!field && event.key.toLowerCase() === 'y') {
+        event.preventDefault();
+        current.redo();
+      }
+    };
+    window.addEventListener('keydown', keydown);
+    return () => window.removeEventListener('keydown', keydown);
+  }, []);
   const document = state.document;
-  const workflow = document ? iterationWorkflow(document) : undefined;
-  const available = desktopAvailable && !state.busy;
+  const workflow = document ? selectedWorkflow(document, state.selectedWorkflowId) : undefined;
+  const available = desktopAvailable && !state.busy && !state.saving;
   const profile = document?.clientProfiles[0];
   return (
     <main className="app-shell">
@@ -30,32 +120,123 @@ function App() {
           <GitFork size={23} strokeWidth={1.8} />
           <span>Interleaving</span>
         </div>
-        <span className="scope-note">Scenario workspace</span>
-        <span className="local-label">Local files · schema v2</span>
+
+        <span className="local-label">Local files</span>
         <ThemeControl />
       </header>
       <section className="scenario-toolbar" aria-label="Scenario actions">
         <div className="scenario-title">
-          <h1>{document?.name ?? 'Scenario diagnostics'}</h1>
-          <p title={state.path ?? undefined}>
-            {state.path?.split(/[\\/]/).pop() ?? 'Example scenario'}
+          <h1>
+            {editing && document ? (
+              <input
+                className="scenario-name"
+                aria-label="Scenario name"
+                value={document.name}
+                onChange={(e) => state.command({ type: 'name', name: e.target.value }, 'scenario-name')}
+                onBlur={state.endHistoryGroup}
+              />
+            ) : (
+              <Select
+                value={state.entryKey || ''}
+                disabled={running || state.busy}
+                onValueChange={(value) => void state.switchScenario(value)}
+              >
+                <SelectTrigger className="scenario-selector" aria-label="Scenario">
+                  <SelectValue placeholder={document?.name ?? 'Select a scenario'}>
+                    {state.entries.find((entry) => entry.key === state.entryKey)?.name ?? document?.name}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {state.entries.map((entry) => (
+                    <SelectItem key={entry.key} value={entry.key}>
+                      {entry.name}
+                      {entry.path ? ` · ${entry.path.split(/[\\/]/).pop()}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </h1>
+          <p title={state.savePath ?? state.path ?? undefined}>
+            {(state.savePath ?? state.path)?.split(/[\\/]/).pop() ??
+              (state.entryKey ? 'Bundled scenario' : 'Unsaved scenario')}
             <span> · {state.format.toUpperCase()}</span>
-            {state.layoutDirty && <span> · Layout modified</span>}
+            {state.dirty && <span> · Unsaved changes</span>}
           </p>
         </div>
         <div className="toolbar-actions">
-          <Button variant="outline" disabled={!available} onClick={() => void state.open()}>
-            <FolderOpen />
-            Open scenario
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={!available || !document || state.status === 'invalid'}
-            onClick={() => void state.save()}
-          >
-            <FileJson2 />
-            Save as JSON
-          </Button>
+          <div className="workspace-mode" role="group" aria-label="Workspace mode">
+            <button aria-pressed={!editing} disabled={state.busy} onClick={() => void state.setMode('view')}>
+              View/Run
+            </button>
+            <button
+              aria-pressed={editing}
+              disabled={state.busy || !document}
+              onClick={() => void state.setMode('edit')}
+            >
+              Edit
+            </button>
+          </div>
+          {editing ? (
+            <div className="scenario-actions">
+              <Suspense fallback={null}>
+                <AddNodePopover />
+              </Suspense>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Save scenario"
+                title="Save (⌘/Ctrl S)"
+                disabled={!available || state.saving || !state.dirty || Boolean(Object.keys(state.formErrors).length)}
+                onClick={() => void state.save()}
+              >
+                <Save />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Undo"
+                title="Undo"
+                disabled={!state.past.length || state.busy || stagedConfiguration}
+                onClick={state.undo}
+              >
+                <Undo2 />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Redo"
+                title="Redo"
+                disabled={!state.future.length || state.busy || stagedConfiguration}
+                onClick={state.redo}
+              >
+                <Redo2 />
+              </Button>
+            </div>
+          ) : (
+            <div className="scenario-actions gap-2">
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="New scenario"
+                title="New scenario"
+                disabled={state.busy || running}
+                onClick={() => void state.newScenario()}
+              >
+                <CirclePlus />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Open scenario"
+                title="Open scenario"
+                disabled={!available || running}
+                onClick={() => void state.open()}
+              >
+                <FolderOpen />
+              </Button>
+            </div>
+          )}
           <Button
             variant="ghost"
             aria-expanded={state.inspectorOpen}
@@ -66,88 +247,138 @@ function App() {
           </Button>
         </div>
       </section>
-      <div className={`workspace${state.inspectorOpen ? '' : ' inspector-collapsed'}`}>
-        <aside className="scenario-sidebar">
-          <h2>Workflow</h2>
-          <nav aria-label="Workflow nodes">
-            {workflow?.nodes.map((node, index) => {
-              const { Icon, label } = nodePresentation[node.type];
-              return (
-                <button
-                  key={node.id}
-                  className={`node-nav ${node.id === state.selectedId ? 'active' : ''}`}
-                  title={label}
-                  aria-current={node.id === state.selectedId ? 'true' : undefined}
-                  onClick={() => state.select(node.id)}
+      <div className="workspace-layout" ref={layout.ref} style={layout.style}>
+        <div className={`workspace${state.inspectorOpen ? '' : ' inspector-collapsed'}`}>
+          <aside id="workflow-sidebar" className="scenario-sidebar">
+            {runView.viewing ? (
+              <RunSidebar />
+            ) : (
+              <>
+                <h2>Workflow</h2>
+                <select
+                  aria-label="Selected workflow"
+                  value={state.canvasView === 'lifecycle' ? '__scenario__' : (workflow?.id ?? '')}
+                  onChange={(e) =>
+                    e.target.value === '__scenario__' ? state.showLifecycle() : state.selectWorkflow(e.target.value)
+                  }
                 >
-                  <Icon size={16} />
-                  <span>{node.id}</span>
-                  <small>{index + 1}</small>
-                </button>
-              );
-            })}
-          </nav>
-          <section className="sidebar-section">
-            <h2>Client profiles</h2>
-            {document?.clientProfiles.map((client) => (
-              <div className="profile-summary" key={client.id}>
-                <strong>{client.id}</strong>
-                <code>{client.baseUrl}</code>
-                <span>{client.timeoutMs.toLocaleString()} ms timeout</span>
-              </div>
-            ))}
-          </section>
-          <section className="sidebar-section">
-            <h2>Virtual-user groups</h2>
-            {document?.groups.map((group) => (
-              <div className="group-summary" key={group.id}>
-                <strong>{group.id}</strong>
-                <span>1 user · once · {group.clientProfileId}</span>
-                <span>Identity: {group.identityAssignment.identityId ?? 'Anonymous'}</span>
-              </div>
-            ))}
-          </section>
-          {Boolean(document?.identities.length) && (
-            <section className="sidebar-section">
-              <h2>Identities</h2>
-              {document?.identities.map((identity) => (
-                <div className="profile-summary" key={identity.id}>
-                  <strong>{identity.id}</strong>
-                  {Object.entries(identity.credentials).map(([field, ref]) => (
-                    <span key={field}>
-                      {field}: <code>{ref.name}</code>
-                    </span>
+                  <option value="__scenario__">Main scenario</option>
+                  {document?.workflows
+                    .filter(
+                      (w) =>
+                        !phases.some(
+                          (phase) =>
+                            document.groups[0]?.lifecycle[phase]?.workflowId === w.id && ownsPhase(document, phase)
+                        )
+                    )
+                    .map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                </select>
+                {state.canvasView === 'lifecycle' ? (
+                  <LifecycleSidebar key={`${state.entryKey}:${document?.id}`} />
+                ) : (
+                  <nav aria-label="Workflow nodes">
+                    {(workflow?.nodes ?? []).map((node, index) => {
+                      const { Icon, label } = presentationFor(node, document);
+                      return (
+                        <button
+                          key={node.id}
+                          className={`node-nav ${node.id === state.selectedId ? 'active' : ''}`}
+                          title={label}
+                          aria-current={node.id === state.selectedId ? 'true' : undefined}
+                          onClick={() => state.select(node.id)}
+                        >
+                          <Icon size={16} />
+                          <span>{nodeName(node, document)}</span>
+                          <small>{index + 1}</small>
+                        </button>
+                      );
+                    })}
+                  </nav>
+                )}
+                <ScenarioBaseUrl />
+                <section className="sidebar-section">
+                  <h2>Client profiles</h2>
+                  {document?.clientProfiles.map((client) => (
+                    <div className="profile-summary" key={client.id}>
+                      <strong>{client.id}</strong>
+                      <code>{client.baseUrl}</code>
+                      <span>{client.timeoutMs.toLocaleString()} ms timeout</span>
+                    </div>
                   ))}
-                </div>
-              ))}
-              <p className="sidebar-note">
-                Environment references resolve in Rust when you run. No credential values are loaded into this
-                workspace.
-              </p>
-            </section>
+                </section>
+                <section className="sidebar-section">
+                  <h2>Virtual-user groups</h2>
+                  {document?.groups.map((group) => (
+                    <div className="group-summary" key={group.id}>
+                      <strong>{group.id}</strong>
+                      <span>1 user · once · {group.clientProfileId}</span>
+                    </div>
+                  ))}
+                </section>
+                {Boolean(document?.identities.length) && (
+                  <section className="sidebar-section">
+                    <h2>Identities</h2>
+                    {document?.identities.map((identity) => (
+                      <div className="profile-summary" key={identity.id}>
+                        <strong>{identity.id}</strong>
+                        {Object.entries(identity.credentials).map(([field, ref]) => (
+                          <span key={field}>
+                            {field}: <code>{ref.name}</code>
+                          </span>
+                        ))}
+                      </div>
+                    ))}
+                  </section>
+                )}
+              </>
+            )}
+          </aside>
+          <PanelResizeHandle
+            label="Resize workflow panel"
+            controls="workflow-sidebar"
+            orientation="vertical"
+            {...layout.workflow}
+          />
+          <section className="canvas-pane" aria-label="Workflow canvas">
+            <div className="canvas-surface">
+              <Suspense
+                fallback={
+                  <div className="canvas-empty" role="status">
+                    Loading workflow…
+                  </div>
+                }
+              >
+                <ScenarioCanvas key={state.fileRevision} />
+              </Suspense>
+            </div>
+          </section>
+          {state.inspectorOpen && (
+            <PanelResizeHandle
+              label="Resize inspector"
+              controls="node-inspector"
+              orientation="vertical"
+              reverse
+              {...layout.inspector}
+            />
           )}
-          <p className="sidebar-note">
-            Run one user’s HTTP and authentication workflow. Canvas layout is independent of execution order.
-          </p>
-        </aside>
-        <section className="canvas-pane" aria-label="Workflow canvas">
-          <div className="canvas-surface">
-            <Suspense
-              fallback={
-                <div className="canvas-empty" role="status">
-                  Loading workflow…
-                </div>
-              }
-            >
-              <ScenarioCanvas key={state.fileRevision} />
-            </Suspense>
+          <div id="node-inspector" className="inspector-container" hidden={!state.inspectorOpen}>
+            {state.inspectorOpen && <NodeInspector />}
           </div>
-        </section>
-        <div id="node-inspector" className="inspector-container" hidden={!state.inspectorOpen}>
-          {state.inspectorOpen && <NodeInspector />}
         </div>
+        <PanelResizeHandle
+          label="Resize Run and Validation panel"
+          controls="workspace-results"
+          orientation="horizontal"
+          reverse
+          {...layout.bottom}
+        />
+        <WorkspacePanels />
       </div>
-      <WorkspacePanels />
+      <UnsavedChangesDialog />
       <footer className="status-bar">
         <span className={state.error ? 'status-error' : ''} role={state.error ? 'alert' : 'status'}>
           {state.error ??

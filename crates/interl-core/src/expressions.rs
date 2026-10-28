@@ -3,25 +3,37 @@ use dsntk_feel::{context::FeelContext, values::Value, FeelScope};
 use dsntk_feel_parser::{parse_expression, AstNode};
 use serde::Serialize;
 
+/// Maximum UTF-8 source size admitted before invoking the FEEL parser.
 pub const MAX_EXPRESSION_BYTES: usize = 4096;
+/// Maximum dotted-name count, including the leading `response.body` names.
 pub const MAX_EXPRESSION_SEGMENTS: usize = 32;
 
+/// A checked response-body property path, ready for bounded engine evaluation.
+/// Its private field prevents callers from constructing unchecked paths directly.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompiledExpression {
     body_path: Vec<String>,
 }
 impl CompiledExpression {
+    /// Borrow property names after `response.body`, without allocating a copy.
     pub fn body_path(&self) -> &[String] {
         &self.body_path
     }
 }
 
-pub(crate) struct ExpressionError {
+/// A static, value-free compilation error and byte offset within the expression.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
+pub struct ExpressionError {
+    /// Stable machine-readable diagnostic code.
     pub code: &'static str,
+    /// Human-readable explanation that avoids embedding sensitive input values.
     pub message: &'static str,
+    /// Zero-based UTF-8 byte offset within the rejected expression, not the document.
     pub offset: usize,
 }
+/// Build a safe expression error without retaining the rejected source text.
 fn error(code: &'static str, message: &'static str, offset: usize) -> ExpressionError {
     ExpressionError {
         code,
@@ -30,7 +42,16 @@ fn error(code: &'static str, message: &'static str, offset: usize) -> Expression
     }
 }
 
-pub(crate) fn compile_expression(source: &str) -> Result<CompiledExpression, ExpressionError> {
+/// Compile the supported `response.body.<property>...` FEEL subset.
+///
+/// First enforce byte/name/grammar limits, then parse with a synthetic scope and
+/// verify that the AST contains only the admitted property access. No expression
+/// is evaluated and no runtime response or secret is supplied to the FEEL library.
+///
+/// # Errors
+/// Returns a static diagnostic code/message and a zero-based UTF-8 byte offset
+/// for malformed, unsupported, or oversized expressions.
+pub fn compile_expression(source: &str) -> Result<CompiledExpression, ExpressionError> {
     if source.len() > MAX_EXPRESSION_BYTES {
         return Err(error(
             "expressionLimit",
@@ -142,6 +163,9 @@ pub(crate) fn compile_expression(source: &str) -> Result<CompiledExpression, Exp
     })
 }
 
+/// Walk the FEEL AST with independent depth/node budgets and collect allowed names.
+/// Any AST shape outside names and qualified-name access is rejected, even if the
+/// text passed the earlier lexical checks.
 fn collect(
     ast: &AstNode,
     names: &mut Vec<String>,

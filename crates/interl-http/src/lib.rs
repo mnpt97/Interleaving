@@ -141,6 +141,7 @@ pub struct HttpResponse {
 
 pub struct HttpSession {
     client: Client,
+    cookie_jar: Arc<reqwest::cookie::Jar>,
     profile_headers: HeaderMap,
     session_headers: HeaderMap,
     removed_headers: BTreeSet<String>,
@@ -176,8 +177,9 @@ impl HttpSession {
             ));
         }
         let headers = parse_headers(&profile.headers)?;
+        let cookie_jar = Arc::new(reqwest::cookie::Jar::default());
         let client = Client::builder()
-            .cookie_store(true)
+            .cookie_provider(cookie_jar.clone())
             .redirect(reqwest::redirect::Policy::none())
             .retry(reqwest::retry::never())
             .dns_resolver(Arc::new(SystemResolver))
@@ -185,6 +187,7 @@ impl HttpSession {
             .map_err(|_| HttpError::configuration("HTTP client could not be initialized"))?;
         Ok(Self {
             client,
+            cookie_jar,
             profile_headers: headers,
             session_headers: HeaderMap::new(),
             removed_headers: BTreeSet::new(),
@@ -210,7 +213,7 @@ impl HttpSession {
             }
             None => None,
         };
-        self.prepare_body(config, variables, body)
+        self.prepare_body(config, variables, body, None)
     }
 
     /// Explicitly replaces config.body with an already-materialized body.
@@ -222,7 +225,76 @@ impl HttpSession {
         variables: &BTreeMap<String, Value>,
         body: ResolvedBody,
     ) -> Result<PreparedRequest, HttpError> {
-        self.prepare_body(config, variables, Some(body))
+        self.prepare_body(config, variables, Some(body), None)
+    }
+
+    /// Target override preserves this session's headers and cookie jar.
+    /// Explicit base paths are prefixes: /v1 + /users becomes /v1/users.
+    pub fn prepare_target(
+        &self,
+        config: &HttpConfig,
+        variables: &BTreeMap<String, Value>,
+        body: Option<ResolvedBody>,
+        base_url: Option<&str>,
+    ) -> Result<PreparedRequest, HttpError> {
+        let body = match body {
+            Some(body) => Some(body),
+            None => match &config.body {
+                Some(RequestBody::Json { value }) => Some(ResolvedBody::Json(value.clone())),
+                Some(RequestBody::Text { value }) => Some(ResolvedBody::Text(value.clone())),
+                Some(RequestBody::JsonTemplate { .. }) => {
+                    return Err(HttpError::configuration("Unresolved body template"))
+                }
+                None => None,
+            },
+        };
+        self.prepare_body(config, variables, body, base_url)
+    }
+    /// Fresh authentication discards previous cookies and session header changes.
+    pub fn fresh(&self) -> Result<Self, HttpError> {
+        Self::new(
+            &ClientProfile {
+                id: "session".into(),
+                base_url: self.base_url.to_string(),
+                timeout_ms: self.timeout_ms,
+                headers: self
+                    .profile_headers
+                    .iter()
+                    .filter(|(name, _)| {
+                        !matches!(
+                            name.as_str(),
+                            "authorization" | "proxy-authorization" | "cookie"
+                        )
+                    })
+                    .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_owned()))
+                    .collect(),
+            },
+            self.max_response_bytes,
+            self.max_request_bytes,
+        )
+    }
+    pub fn has_response_cookies(&self, url: &Url, headers: &HeaderMap) -> bool {
+        use reqwest::cookie::CookieStore;
+        // Cookies may intentionally target /api while login itself lives at /login.
+        // Check the issued cookie's path against the actual jar, including expiry,
+        // domain and Secure filtering, instead of requiring a login-path match.
+        headers.get_all("set-cookie").iter().any(|header| {
+            let Ok(header) = header.to_str() else {
+                return false;
+            };
+            let mut target = url.clone();
+            if let Some(path) = header
+                .split(';')
+                .skip(1)
+                .filter_map(|part| part.trim().split_once('='))
+                .find_map(|(name, value)| {
+                    (name.eq_ignore_ascii_case("path") && value.starts_with('/')).then_some(value)
+                })
+            {
+                target.set_path(path);
+            }
+            self.cookie_jar.cookies(&target).is_some()
+        })
     }
 
     /// Validate the entire update before changing state. Removal suppresses
@@ -291,6 +363,7 @@ impl HttpSession {
         config: &HttpConfig,
         variables: &BTreeMap<String, Value>,
         body: Option<ResolvedBody>,
+        base_url: Option<&str>,
     ) -> Result<PreparedRequest, HttpError> {
         let timeout_ms = config.timeout_ms.unwrap_or(self.timeout_ms);
         check_timeout(timeout_ms)?;
@@ -304,13 +377,39 @@ impl HttpSession {
                 "Request path must be root-relative, bounded, and have no fragment or line breaks",
             ));
         }
-        let url = self
-            .base_url
-            .join(&path)
+        let base = match base_url {
+            Some(value) => {
+                let mut base =
+                    Url::parse(value).map_err(|_| HttpError::configuration("Invalid base URL"))?;
+                if !matches!(base.scheme(), "http" | "https")
+                    || base.host_str().is_none()
+                    || !base.username().is_empty()
+                    || base.password().is_some()
+                    || base.query().is_some()
+                    || base.fragment().is_some()
+                {
+                    return Err(HttpError::configuration(
+                        "Base URL must use HTTP(S) without credentials, query or fragment",
+                    ));
+                }
+                let prefix = format!("{}/", base.path().trim_end_matches('/'));
+                base.set_path(&prefix);
+                base
+            }
+            None => self.base_url.clone(),
+        };
+        let url = base
+            .join(if base_url.is_some() {
+                &path[1..]
+            } else {
+                &path
+            })
             .map_err(|_| HttpError::configuration("Invalid request path"))?;
-        if url.origin() != self.base_url.origin() {
+        if url.origin() != base.origin()
+            || (base_url.is_some() && !url.path().starts_with(base.path()))
+        {
             return Err(HttpError::configuration(
-                "Request path must preserve the client origin",
+                "Request path must preserve its base URL origin and path prefix",
             ));
         }
         if url.path().len() + url.query().map_or(0, |query| query.len() + 1)

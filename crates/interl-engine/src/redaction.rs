@@ -111,7 +111,7 @@ impl Redactor {
         self.remember(value);
     }
 
-    pub(crate) fn learn_program(&mut self, program: &interl_core::v2::Program) {
+    pub(crate) fn learn_program(&mut self, program: &interl_core::Program) {
         // Learn literal values, never reference descriptor words/field names.
         fn walk(redactor: &mut Redactor, v: &Value) {
             match v {
@@ -123,7 +123,7 @@ impl Redactor {
                         return;
                     }
                     for (k, v) in map {
-                        if k == "default" || k == "prefix" {
+                        if k == "default" || k == "prefix" || k == "headerPrefix" {
                             redactor.remember_value(v);
                         }
                         if k == "headers" {
@@ -150,7 +150,11 @@ impl Redactor {
                 _ => {}
             }
         }
-        let mut v = serde_json::to_value(program.document()).expect("typed document");
+        let Ok(mut v) = serde_json::to_value(program.document()) else {
+            // A failed projection must never fall back to unredacted source data.
+            self.exhausted = true;
+            return;
+        };
         v["identities"] = json!([]);
         walk(self, &v);
         for v in program.document().environment.variables.values() {
@@ -162,15 +166,24 @@ impl Redactor {
             }
         }
     }
-    pub(crate) fn program_snapshot(&self, program: &interl_core::v2::Program) -> Value {
+    pub(crate) fn program_snapshot(&self, program: &interl_core::Program) -> Value {
         if self.exhausted {
             return json!("[Preview omitted: redaction budget exceeded]");
         }
-        let mut v = serde_json::to_value(program.document()).expect("typed document");
+        let Ok(mut v) = serde_json::to_value(program.document()) else {
+            return json!("[Preview omitted: serialization failed]");
+        };
         fn scrub(v: &mut Value) {
             match v {
                 Value::Object(m) => {
                     m.remove("layout");
+                    if let Some(condition) = m.get_mut("condition").and_then(Value::as_object_mut) {
+                        // Predicates can contain literal values learned from a response.
+                        // Snapshots describe wiring without exporting those constants.
+                        if condition.contains_key("expression") {
+                            condition.insert("expression".into(), json!("[Expression omitted]"));
+                        }
+                    }
                     if m.get("source").and_then(Value::as_str) == Some("literal") {
                         m.insert("value".into(), json!("[REDACTED]"));
                         return;
@@ -184,7 +197,7 @@ impl Redactor {
                         }
                     }
                     for (k, v) in m {
-                        if k == "prefix" || k == "default" {
+                        if k == "prefix" || k == "headerPrefix" || k == "default" {
                             *v = json!("[REDACTED]");
                         } else {
                             scrub(v);

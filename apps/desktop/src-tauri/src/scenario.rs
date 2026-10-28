@@ -40,6 +40,41 @@ pub fn save_scenario_json(path: &str, source: &str) -> Result<(), Diagnostic> {
     })
 }
 
+#[tauri::command]
+pub fn save_scenario_draft_json(
+    path: &str,
+    source: &str,
+) -> Result<DocumentValidation, Diagnostic> {
+    let destination = Path::new(path);
+    if destination
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("json")
+    {
+        return Err(Diagnostic::new(
+            interl_core::ErrorCategory::Format,
+            "unsupportedExtension",
+            "",
+            "Save as a .json file; YAML files are never overwritten by JSON export.",
+        ));
+    }
+    let document =
+        interl_core::parse_document(source, ScenarioFormat::Json).map_err(|e| e.diagnostic)?;
+    let canonical = interl_core::serialize_draft(&document).map_err(|e| e.diagnostic)?;
+    std::fs::write(destination, &canonical).map_err(|_| {
+        Diagnostic::new(
+            interl_core::ErrorCategory::Io,
+            "writeFile",
+            "",
+            "Cannot save JSON; check the destination and permissions.",
+        )
+    })?;
+    Ok(interl_core::inspect_document(
+        &canonical,
+        ScenarioFormat::Json,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +186,37 @@ mod reusable_tests {
             file,
             interl_core::parse_document(&saved, ScenarioFormat::Json).unwrap()
         );
+    }
+}
+
+#[cfg(test)]
+mod draft_tests {
+    use super::*;
+    #[test]
+    fn draft_save_reopens_with_diagnostics_and_never_relaxes_normal_save() {
+        let mut document = interl_core::parse_document(
+            include_str!("../../../../scenarios/examples/hello-api.json"),
+            ScenarioFormat::Json,
+        )
+        .unwrap();
+        document.workflows[0].edges.clear();
+        let source = serde_json::to_string(&document).unwrap();
+        let path = std::env::temp_dir().join(format!("interl-draft-{}.json", std::process::id()));
+        let result = save_scenario_draft_json(path.to_str().unwrap(), &source).unwrap();
+        assert!(!result.valid);
+        assert!(!result.diagnostics.is_empty());
+        assert_eq!(
+            open_scenario(path.to_str().unwrap())
+                .unwrap()
+                .validation
+                .document,
+            Some(document)
+        );
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(save_scenario_json(path.to_str().unwrap(), &source).is_err());
+        assert!(save_scenario_draft_json(path.to_str().unwrap(), "{").is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+        assert!(save_scenario_draft_json("draft.yaml", &source).is_err());
+        std::fs::remove_file(path).unwrap();
     }
 }

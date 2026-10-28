@@ -2,15 +2,11 @@
   "schemaVersion": 2,
   "id": "reusable-login",
   "name": "Initialize one user, then inspect its account",
-  "environment": {
-    "variables": {}
-  },
   "clientProfiles": [
     {
       "id": "api",
       "baseUrl": "http://127.0.0.1:8080",
-      "timeoutMs": 10000,
-      "headers": {}
+      "timeoutMs": 10000
     }
   ],
   "identities": [
@@ -36,13 +32,9 @@
         "mode": "shared",
         "identityId": "alice"
       },
-      "executor": {
-        "kind": "once"
-      },
       "lifecycle": {
         "initialize": {
-          "workflowId": "login",
-          "inputs": {}
+          "workflowId": "login"
         },
         "iteration": {
           "workflowId": "main",
@@ -53,9 +45,7 @@
               "name": "token"
             }
           }
-        },
-        "cleanup": null,
-        "cleanupTimeoutMs": 2000
+        }
       }
     }
   ],
@@ -63,7 +53,6 @@
     {
       "id": "login",
       "name": "Login",
-      "inputs": {},
       "outputs": {
         "token": {
           "type": "string",
@@ -130,7 +119,27 @@
           "from": "extract-token",
           "to": "end"
         }
-      ]
+      ],
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "login": {
+            "x": 340,
+            "y": 160
+          },
+          "extract-token": {
+            "x": 600,
+            "y": 160
+          },
+          "end": {
+            "x": 860,
+            "y": 160
+          }
+        }
+      }
     },
     {
       "id": "main",
@@ -140,7 +149,6 @@
           "type": "string"
         }
       },
-      "outputs": {},
       "nodes": [
         {
           "id": "start",
@@ -156,16 +164,14 @@
                 "name": "token",
                 "prefix": "Bearer "
               }
-            },
-            "removeHeaders": []
+            }
           }
         },
         {
           "id": "inspect",
           "type": "call",
           "config": {
-            "workflowId": "inspect-account",
-            "inputs": {}
+            "workflowId": "inspect-account"
           }
         },
         {
@@ -189,13 +195,31 @@
           "from": "inspect",
           "to": "end"
         }
-      ]
+      ],
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "apply-token": {
+            "x": 340,
+            "y": 160
+          },
+          "inspect": {
+            "x": 600,
+            "y": 160
+          },
+          "end": {
+            "x": 860,
+            "y": 160
+          }
+        }
+      }
     },
     {
       "id": "inspect-account",
       "name": "Inspect account",
-      "inputs": {},
-      "outputs": {},
       "nodes": [
         {
           "id": "start",
@@ -225,8 +249,23 @@
           "from": "request",
           "to": "end"
         }
-      ]
+      ],
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "request": {
+            "x": 340,
+            "y": 160
+          },
+          "end": {
+            "x": 600,
+            "y": 160
+          }
+        }
+      }
     }
-  ],
-  "assertions": []
+  ]
 }

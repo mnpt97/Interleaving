@@ -1,28 +1,19 @@
+# yaml-language-server: $schema=../../schemas/scenario.schema.json
 schemaVersion: 2
 id: hello-api
 name: Hello API
-environment:
-  variables: {}
 clientProfiles:
 - id: api
   baseUrl: http://127.0.0.1:8080
   timeoutMs: 10000
   headers:
     accept: application/json
-identities: []
 groups:
 - id: visitors
   clientProfileId: api
-  identityAssignment:
-    mode: shared
-    identityId: null
-  executor:
-    kind: once
   lifecycle:
     iteration:
       workflowId: main
-      inputs: {}
-assertions: []
 workflows:
 - nodes:
   - id: start
@@ -43,8 +34,6 @@ workflows:
     id: edge-1
   id: main
   name: Hello API
-  inputs: {}
-  outputs: {}
   layout:
     positions:
       start:

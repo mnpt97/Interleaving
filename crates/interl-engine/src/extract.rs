@@ -38,7 +38,7 @@ pub(crate) enum ExtractionError {
     MissingProperty,
     #[error("Required response property is null.")]
     NullValue,
-    #[error("Extraction requires object property access ending in a string.")]
+    #[error("Extraction requires a scalar matching its declared type.")]
     WrongType,
     #[error("Extracted string must not be empty.")]
     EmptyValue,
@@ -80,10 +80,16 @@ fn check_cancel(cancel: &CancellationToken) -> Result<(), ExtractionError> {
 }
 
 /// No Serialize, Clone, or Display; raw access stays inside the engine.
-pub(crate) struct ExtractedValue(String);
+pub(crate) struct ExtractedValue {
+    value: serde_json::Value,
+    redaction: String,
+}
 impl ExtractedValue {
+    pub(crate) fn value(&self) -> &serde_json::Value {
+        &self.value
+    }
     pub(crate) fn expose(&self) -> &str {
-        &self.0
+        &self.redaction
     }
 }
 impl fmt::Debug for ExtractedValue {
@@ -101,7 +107,7 @@ struct RetainedResponse {
 pub(crate) struct ExtractionState {
     plan: AuthPlan,
     responses: BTreeMap<String, RetainedResponse>,
-    outputs: BTreeMap<String, ExtractedValue>,
+    outputs: BTreeMap<(String, String), ExtractedValue>,
     response_bytes: usize,
     output_bytes: usize,
     per_response_limit: usize,
@@ -130,7 +136,7 @@ impl ExtractionState {
             self.outputs.len(),
             self.outputs
                 .values()
-                .map(|v| serde_json::to_vec(v.expose()).expect("string scalar").len())
+                .map(|v| crate::budget::value_bytes(v.value()))
                 .sum(),
             self.response_bytes,
         )
@@ -189,7 +195,12 @@ impl ExtractionState {
         node: &str,
         cancel: &CancellationToken,
     ) -> Result<&ExtractedValue, ExtractionError> {
-        self.extract_bounded(node, cancel, MAX_OUTPUTS, usize::MAX)
+        self.extract_bounded(node, cancel, MAX_OUTPUTS, usize::MAX)?;
+        self.outputs
+            .iter()
+            .find(|((source, _), _)| source == node)
+            .map(|(_, value)| value)
+            .ok_or(ExtractionError::UnavailableOutput)
     }
     pub(crate) fn extract_bounded(
         &mut self,
@@ -197,10 +208,15 @@ impl ExtractionState {
         cancel: &CancellationToken,
         max_outputs: usize,
         max_bytes: usize,
-    ) -> Result<&ExtractedValue, ExtractionError> {
-        if let Some(old) = self.outputs.remove(node) {
-            self.output_bytes -= old.expose().len();
-        }
+    ) -> Result<(), ExtractionError> {
+        self.outputs.retain(|(source, _), old| {
+            if source == node {
+                self.output_bytes -= old.expose().len();
+                false
+            } else {
+                true
+            }
+        });
         check_cancel(cancel)?;
         let extraction = self
             .plan
@@ -215,41 +231,83 @@ impl ExtractionState {
             return Err(ExtractionError::TruncatedResponse);
         }
         let root = json::parse(&response.bytes, cancel)?;
-        let mut value = &root;
-        for segment in extraction.expression().body_path() {
-            check_cancel(cancel)?;
+        // Stage the entire set: a missing field, budget failure, or cancellation
+        // must never make a partial output set available to downstream nodes.
+        let mut pending = BTreeMap::new();
+        let mut pending_bytes = 0;
+        let mut pending_encoded = 0;
+        for (name, output) in extraction.outputs() {
+            let mut value = &root;
+            for segment in output.expression().body_path() {
+                check_cancel(cancel)?;
+                if value.is_null() {
+                    return Err(ExtractionError::NullValue);
+                }
+                let object = value.as_object().ok_or(ExtractionError::WrongType)?;
+                value = object
+                    .get(segment)
+                    .ok_or(ExtractionError::MissingProperty)?;
+            }
             if value.is_null() {
                 return Err(ExtractionError::NullValue);
             }
-            let object = value.as_object().ok_or(ExtractionError::WrongType)?;
-            value = object
-                .get(segment)
-                .ok_or(ExtractionError::MissingProperty)?;
+            if value
+                .as_str()
+                .is_some_and(|text| text.len() > MAX_VALUE_BYTES)
+            {
+                return Err(ExtractionError::ValueLimit);
+            }
+            if interl_core::scalar_type(value) != Some(output.output_type()) {
+                return Err(ExtractionError::WrongType);
+            }
+            let redaction = value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string());
+            if redaction.is_empty() {
+                return Err(ExtractionError::EmptyValue);
+            }
+            if redaction.len() > MAX_VALUE_BYTES {
+                return Err(ExtractionError::ValueLimit);
+            }
+            pending_bytes += redaction.len();
+            pending_encoded += crate::budget::value_bytes(value);
+            if self.outputs.len() + pending.len() >= MAX_OUTPUTS.min(max_outputs)
+                || pending_bytes > MAX_OUTPUT_BYTES.saturating_sub(self.output_bytes)
+                || pending_encoded > max_bytes.saturating_sub(self.usage().1)
+            {
+                return Err(ExtractionError::OutputLimit);
+            }
+            check_cancel(cancel)?;
+            pending.insert(
+                (node.to_owned(), name.clone()),
+                ExtractedValue {
+                    value: value.clone(),
+                    redaction,
+                },
+            );
         }
-        if value.is_null() {
-            return Err(ExtractionError::NullValue);
-        }
-        let value = value.as_str().ok_or(ExtractionError::WrongType)?;
-        if value.is_empty() {
-            return Err(ExtractionError::EmptyValue);
-        }
-        if value.len() > MAX_VALUE_BYTES {
-            return Err(ExtractionError::ValueLimit);
-        }
-        let encoded = serde_json::to_vec(value).expect("string scalar").len();
-        if self.outputs.len() >= MAX_OUTPUTS.min(max_outputs)
-            || value.len() > MAX_OUTPUT_BYTES.saturating_sub(self.output_bytes)
-            || encoded > max_bytes.saturating_sub(self.usage().1)
-        {
-            return Err(ExtractionError::OutputLimit);
-        }
+        check_cancel(cancel)?;
+        self.output_bytes += pending_bytes;
+        self.outputs.extend(pending);
+        Ok(())
+    }
 
-        check_cancel(cancel)?;
-        let value = ExtractedValue(value.into());
-        check_cancel(cancel)?;
-        self.output_bytes += value.expose().len();
-        self.outputs.insert(node.into(), value);
-        Ok(&self.outputs[node])
+    /// Parse a retained body with the same duplicate-key, depth and cancellation
+    /// checks used by extraction. The owned result stays within this invocation.
+    pub(crate) fn response_body(
+        &self,
+        source: &str,
+        cancel: &CancellationToken,
+    ) -> Result<serde_json::Value, ExtractionError> {
+        let response = self
+            .responses
+            .get(source)
+            .ok_or(ExtractionError::UnavailableResponse)?;
+        if response.truncated {
+            return Err(ExtractionError::TruncatedResponse);
+        }
+        json::parse(&response.bytes, cancel)
     }
 
     pub(crate) fn output(
@@ -257,16 +315,8 @@ impl ExtractionState {
         node: &str,
         name: &str,
     ) -> Result<&ExtractedValue, ExtractionError> {
-        if self
-            .plan
-            .extractions()
-            .get(node)
-            .is_none_or(|e| e.output() != name)
-        {
-            return Err(ExtractionError::UnavailableOutput);
-        }
         self.outputs
-            .get(node)
+            .get(&(node.to_owned(), name.to_owned()))
             .ok_or(ExtractionError::UnavailableOutput)
     }
 
@@ -284,7 +334,7 @@ impl ExtractionState {
             }
             keep
         });
-        self.outputs.retain(|source, value| {
+        self.outputs.retain(|(source, _), value| {
             let keep = self
                 .plan
                 .extractions()
@@ -301,3 +351,34 @@ impl ExtractionState {
 #[cfg(test)]
 #[path = "extract_tests.rs"]
 mod tests;
+
+/// Authentication uses the same bounded JSON parser and property-path contract.
+pub(crate) fn authentication_token(
+    response: &HttpResponse,
+    expression: &str,
+    cancel: &CancellationToken,
+) -> Result<String, ExtractionError> {
+    if response.truncated {
+        return Err(ExtractionError::TruncatedResponse);
+    }
+    let expression = interl_core::compile_expression(expression)
+        .map_err(|_| ExtractionError::UnknownExtraction)?;
+    let root = json::parse(&response.body, cancel)?;
+    let mut value = &root;
+    for segment in expression.body_path() {
+        check_cancel(cancel)?;
+        value = value
+            .as_object()
+            .ok_or(ExtractionError::WrongType)?
+            .get(segment)
+            .ok_or(ExtractionError::MissingProperty)?;
+    }
+    let value = value.as_str().ok_or(ExtractionError::WrongType)?;
+    if value.is_empty() {
+        return Err(ExtractionError::EmptyValue);
+    }
+    if value.len() > MAX_VALUE_BYTES {
+        return Err(ExtractionError::ValueLimit);
+    }
+    Ok(value.to_owned())
+}

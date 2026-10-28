@@ -74,8 +74,11 @@ fn plans_are_format_array_order_and_layout_independent() {
     assert_eq!(auth.response_last_uses()["login"], "extract-token");
     let extraction = &auth.extractions()["extract-token"];
     assert_eq!(extraction.source_node_id(), "login");
-    assert_eq!(extraction.output(), "token");
-    assert_eq!(extraction.expression().body_path(), ["accessToken"]);
+    assert!(extraction.outputs().contains_key("token"));
+    assert_eq!(
+        extraction.outputs()["token"].expression().body_path(),
+        ["accessToken"]
+    );
     assert_eq!(extraction.last_use_node_id(), "apply-token");
 }
 

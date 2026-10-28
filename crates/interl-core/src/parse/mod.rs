@@ -1,3 +1,6 @@
+//! Format-independent parse limits, typed deserialization, and deterministic JSON output.
+//! The JSON and YAML readers detect duplicates before insertion can overwrite earlier values.
+
 mod json;
 mod yaml;
 
@@ -6,21 +9,33 @@ use crate::{Diagnostic, ErrorCategory, ScenarioDocument, ScenarioLoadError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// The explicitly selected input syntax; parsing never guesses it from the source text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ScenarioFormat {
+    /// Parse duplicate-aware JSON.
     Json,
+    /// Parse the restricted JSON-compatible YAML subset.
     Yaml,
 }
 
+/// Admission budgets shared by both syntax readers.
+/// String lengths are measured in UTF-8 bytes; depth and value/collection counts
+/// are checked while reading rather than after allocating the whole document.
 #[derive(Debug, Clone, Copy)]
 pub struct ScenarioLimits {
+    /// Maximum UTF-8 source bytes read or admitted.
     pub max_bytes: usize,
+    /// Maximum nested value depth; effective depth is also hard-capped at 128.
     pub max_depth: usize,
+    /// Maximum entries in an individual object or array.
     pub max_collection_size: usize,
+    /// Maximum aggregate JSON-compatible values across the document.
     pub max_values: usize,
 }
 
+/// Provide the standard 1 MiB, depth-64, 10,000-entry, 100,000-value limits.
+/// `Default` lets callers use `ScenarioLimits::default()` or struct-update syntax.
 impl Default for ScenarioLimits {
     fn default() -> Self {
         Self {
@@ -32,6 +47,8 @@ impl Default for ScenarioLimits {
     }
 }
 
+/// Mutable accounting owned by one parse operation.
+/// `failure` preserves a safe diagnostic across Serde's generic error interface.
 struct Budget {
     limits: ScenarioLimits,
     values: usize,
@@ -39,6 +56,7 @@ struct Budget {
 }
 
 impl Budget {
+    /// Start a fresh parse budget; no counters are shared between documents.
     fn new(limits: ScenarioLimits) -> Self {
         Self {
             limits,
@@ -46,6 +64,7 @@ impl Budget {
             failure: None,
         }
     }
+    /// Charge one value and enforce aggregate/depth limits, with a hard depth cap of 128.
     fn count(&mut self, depth: usize, path: &str) -> Result<(), Diagnostic> {
         self.values += 1;
         if depth > self.limits.max_depth.min(128) || self.values > self.limits.max_values {
@@ -58,6 +77,7 @@ impl Budget {
         }
         Ok(())
     }
+    /// Check a proposed collection size before appending another entry.
     fn collection(&self, size: usize, path: &str) -> Result<(), Diagnostic> {
         if size > self.limits.max_collection_size {
             return Err(Diagnostic::new(
@@ -71,6 +91,12 @@ impl Budget {
     }
 }
 
+/// Parse JSON/YAML into the canonical typed model using default limits.
+///
+/// # Errors
+/// Returns syntax, schema, duplicate-key, or resource-limit failures. Semantic
+/// issues such as broken edges are deferred to [`crate::compile_document`] so
+/// the editor can retain structurally valid drafts.
 pub fn parse_scenario(
     source: &str,
     format: ScenarioFormat,
@@ -78,6 +104,13 @@ pub fn parse_scenario(
     parse_scenario_with_limits(source, format, ScenarioLimits::default())
 }
 
+/// Parse bounded syntax, then deserialize the strict scenario shape with field paths.
+///
+/// `serde_path_to_error` tracks the failing field; safe diagnostics deliberately
+/// avoid raw Serde errors that may contain payload or credential values.
+///
+/// # Errors
+/// Returns the first syntax, schema, unsupported-declaration, or parser-budget error.
 pub fn parse_scenario_with_limits(
     source: &str,
     format: ScenarioFormat,
@@ -133,32 +166,25 @@ pub fn parse_scenario_with_limits(
         let message = if inner.starts_with("missing field") || inner.starts_with("unknown field") {
             inner
         } else {
-            "Field has an invalid type or unsupported configuration; see the schema v2 contract."
+            "Field has an invalid type or unsupported configuration; see the scenario schema contract."
                 .into()
         };
         Diagnostic::new(ErrorCategory::Schema, "invalidSchema", &path, message).into()
     })
 }
 
-/// Stable JSON, including nested arbitrary payload maps; arrays retain their order.
+/// Validate and serialize a runnable scenario as deterministic, pretty-printed JSON.
+///
+/// Serde's built-in recursive sorter orders object keys without an intermediate
+/// collection; array order is preserved, including inside arbitrary literal payloads.
+/// For incomplete editor work use [`crate::serialize_draft`] instead.
+///
+/// # Errors
+/// Returns the first semantic diagnostic or a safe serialization failure.
 pub fn serialize_scenario(scenario: &ScenarioDocument) -> Result<String, ScenarioLoadError> {
     if let Err(errors) = crate::validate_scenario(scenario) {
         if let Some(diagnostic) = errors.into_iter().next() {
             return Err(diagnostic.into());
-        }
-    }
-    fn sort(value: &mut Value) {
-        match value {
-            Value::Object(map) => {
-                let old = std::mem::take(map);
-                let sorted: std::collections::BTreeMap<_, _> = old.into_iter().collect();
-                for (key, mut value) in sorted {
-                    sort(&mut value);
-                    map.insert(key, value);
-                }
-            }
-            Value::Array(array) => array.iter_mut().for_each(sort),
-            _ => {}
         }
     }
     let mut value = serde_json::to_value(scenario).map_err(|_| {
@@ -169,7 +195,7 @@ pub fn serialize_scenario(scenario: &ScenarioDocument) -> Result<String, Scenari
             "Scenario cannot be serialized.",
         )
     })?;
-    sort(&mut value);
+    value.sort_all_objects();
     serde_json::to_string_pretty(&value).map_err(|_| {
         Diagnostic::new(
             ErrorCategory::Schema,
@@ -181,6 +207,7 @@ pub fn serialize_scenario(scenario: &ScenarioDocument) -> Result<String, Scenari
     })
 }
 
+/// Enforce the source byte budget and dispatch to the chosen duplicate-aware reader.
 pub(crate) fn parse_value(
     source: &str,
     format: ScenarioFormat,

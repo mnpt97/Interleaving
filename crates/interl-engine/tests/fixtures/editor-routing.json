@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 2,
+  "id": "editor-routing",
+  "name": "Editor routing",
+  "environment": {
+    "variables": {}
+  },
+  "clientProfiles": [
+    {
+      "id": "client-1",
+      "baseUrl": "http://localhost:8080",
+      "timeoutMs": 5000,
+      "headers": {}
+    }
+  ],
+  "identities": [],
+  "assertions": [],
+  "groups": [
+    {
+      "id": "group-1",
+      "clientProfileId": "client-1",
+      "identityAssignment": {
+        "mode": "shared",
+        "identityId": null
+      },
+      "executor": {
+        "kind": "once"
+      },
+      "lifecycle": {
+        "initialize": null,
+        "iteration": {
+          "workflowId": "workflow-1",
+          "inputs": {}
+        },
+        "cleanup": null,
+        "cleanupTimeoutMs": 2000
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "id": "workflow-1",
+      "name": "Iteration",
+      "inputs": {},
+      "outputs": {},
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "http-1",
+          "type": "http",
+          "name": "HTTP Request",
+          "config": {
+            "method": "GET",
+            "path": "/health",
+            "headers": {}
+          }
+        },
+        {
+          "id": "end",
+          "type": "end"
+        },
+        {
+          "id": "exclusiveSplit-1",
+          "type": "exclusiveSplit",
+          "config": {
+            "sourceNodeId": "http-1"
+          }
+        },
+        {
+          "id": "http-2",
+          "type": "http",
+          "name": "HTTP Request",
+          "config": {
+            "method": "GET",
+            "path": "/echo",
+            "headers": {}
+          }
+        },
+        {
+          "id": "http-3",
+          "type": "http",
+          "name": "HTTP Request",
+          "config": {
+            "method": "GET",
+            "path": "/health",
+            "headers": {}
+          }
+        },
+        {
+          "id": "merge-1",
+          "type": "exclusiveMerge"
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "from": "start",
+          "to": "http-1"
+        },
+        {
+          "id": "edge-2",
+          "from": "http-1",
+          "to": "exclusiveSplit-1"
+        },
+        {
+          "id": "edge-3",
+          "from": "exclusiveSplit-1",
+          "to": "http-2",
+          "condition": {
+            "expression": "response.status >= 200 and response.status < 300"
+          }
+        },
+        {
+          "id": "edge-4",
+          "from": "exclusiveSplit-1",
+          "to": "http-3",
+          "default": true
+        },
+        {
+          "id": "edge-5",
+          "from": "merge-1",
+          "to": "end"
+        },
+        {
+          "id": "edge-6",
+          "from": "http-2",
+          "to": "merge-1"
+        },
+        {
+          "id": "edge-7",
+          "from": "http-3",
+          "to": "merge-1"
+        }
+      ],
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "end": {
+            "x": 1640,
+            "y": 160
+          },
+          "http-1": {
+            "x": 340,
+            "y": 160
+          },
+          "exclusiveSplit-1": {
+            "x": 600,
+            "y": 160
+          },
+          "merge-1": {
+            "x": 1380,
+            "y": 160
+          },
+          "http-2": {
+            "x": 860,
+            "y": 60
+          },
+          "http-3": {
+            "x": 860,
+            "y": 260
+          }
+        }
+      }
+    }
+  ]
+}

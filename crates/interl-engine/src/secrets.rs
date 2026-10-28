@@ -3,24 +3,36 @@ use crate::redaction::Redactor;
 use interl_core::{AuthPlan, Diagnostic, ErrorCategory, SecretReference};
 use std::{collections::BTreeMap, ffi::OsString, fmt, sync::Arc};
 
+/// Maximum UTF-8 bytes in one resolved credential.
 pub const MAX_CREDENTIAL_BYTES: usize = 8192;
+/// Maximum credential references admitted during preparation.
 pub const MAX_CREDENTIAL_REFERENCES: usize = 4096;
+/// Maximum bytes across distinct resolved credential environment names.
 pub const MAX_TOTAL_CREDENTIAL_BYTES: usize = 1_048_576;
 
 /// Typed failures cannot retain a provider's secret-bearing error text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum SecretLookupError {
+    /// The provider has no value for this reference.
+    #[error("Credential reference is missing")]
     Missing,
+    /// The reference could not be read without exposing provider details.
+    #[error("Credential reference is unavailable")]
     Unavailable,
 }
 
 /// Providers must not log values or panic. They are trusted application code,
 /// not scenario-supplied plugins. No provider is retained after preparation.
 pub trait SecretProvider: Send + Sync {
+    /// Resolves an environment reference without logging credential values.
+    ///
+    /// # Errors
+    /// Returns a safe category for missing or unreadable references.
     fn lookup(&self, name: &str) -> Result<OsString, SecretLookupError>;
 }
 
 #[derive(Debug, Default)]
+/// Reads the process environment at preparation time; never loads .env files.
 pub struct EnvironmentSecretProvider;
 impl SecretProvider for EnvironmentSecretProvider {
     fn lookup(&self, name: &str) -> Result<OsString, SecretLookupError> {

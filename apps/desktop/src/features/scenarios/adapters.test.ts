@@ -23,6 +23,16 @@ describe('React Flow adapters', () => {
       { x: 340, y: 160 },
       { x: 600, y: 160 },
     ]);
+    expect(toFlowNodes(document, null).map((node) => node.origin)).toEqual([
+      [0, 0.5],
+      [0, 0.5],
+      [0, 0.5],
+    ]);
+  });
+  it('rounds saved coordinates and ignores movement within the same hundredth', () => {
+    const moved = moveNode(exampleDocument, 'health', { x: 120.12345, y: -240.98765 });
+    expect(moved.workflows[0].layout?.positions.health).toEqual({ x: 120.12, y: -240.99 });
+    expect(moveNode(moved, 'health', { x: 120.121, y: -240.991 })).toBe(moved);
   });
   it('rejects nonfinite positions and unknown node IDs', () => {
     expect(moveNode(exampleDocument, 'missing', { x: 1, y: 1 })).toBe(exampleDocument);

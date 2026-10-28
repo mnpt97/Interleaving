@@ -1,9 +1,17 @@
+//! Bounded filesystem reads and extension-based format selection.
+//! Operating-system errors are translated into safe diagnostics rather than exposing raw input.
+
 use crate::{
     parse_scenario_with_limits, Diagnostic, ErrorCategory, ScenarioDocument, ScenarioFormat,
     ScenarioLimits, ScenarioLoadError,
 };
 use std::{fs::File, io::Read, path::Path};
 
+/// Read one regular UTF-8 file and retain its selected format.
+///
+/// The metadata size check is only an early rejection: `Read::take` caps the actual
+/// read to `max_bytes + 1`, also catching files that grow after metadata is read.
+/// The closure collects fallible steps so the file path can be attached once.
 pub(crate) fn read_source(
     path: &Path,
     limits: ScenarioLimits,
@@ -78,10 +86,20 @@ pub(crate) fn read_source(
     result.map_err(|diagnostic: Diagnostic| diagnostic.with_file(path).into())
 }
 
+/// Read and parse a scenario using the default resource limits.
+///
+/// # Errors
+/// Returns a file, format, syntax, schema, or resource-limit diagnostic.
+/// Successful parsing does not imply semantic validity; use [`crate::compile_scenario`] next.
 pub fn load_scenario(path: &Path) -> Result<ScenarioDocument, ScenarioLoadError> {
     load_scenario_with_limits(path, ScenarioLimits::default())
 }
 
+/// Read and parse a scenario using caller-supplied parser limits.
+///
+/// # Errors
+/// Returns the same failures as [`load_scenario`], with the file path attached
+/// to parser diagnostics as well as filesystem diagnostics.
 pub fn load_scenario_with_limits(
     path: &Path,
     limits: ScenarioLimits,

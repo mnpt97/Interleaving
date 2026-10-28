@@ -1,6 +1,8 @@
 //! Local-only manual HTTP/auth verification server. Never used by production execution.
 #[path = "../../../tests/support/auth.rs"]
 mod auth;
+#[path = "../../../tests/support/long_poll.rs"]
+mod long_poll;
 use axum::{
     body::Bytes,
     http::{HeaderMap, Method},
@@ -12,6 +14,10 @@ use serde_json::{json, Value};
 async fn main() {
     let app = Router::new()
         .route("/health", get(|| async { Json(json!({"status":"ok"})) }))
+        .route(
+            "/routing-body",
+            get(|| async { Json(json!({"value":{"status":true,"attempts":3,"label":"ready"}})) }),
+        )
         .route("/echo", get(echo).post(echo))
         .route(
             "/not-found",
@@ -29,6 +35,7 @@ async fn main() {
                 Json(json!({"status":"late"}))
             }),
         )
+        .merge(long_poll::router())
         .merge(auth::router(auth::AuthState::new(
             std::time::Duration::from_secs(10),
         )));

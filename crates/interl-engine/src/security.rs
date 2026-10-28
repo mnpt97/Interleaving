@@ -19,7 +19,7 @@ impl std::fmt::Debug for RunSecurity {
 }
 impl RunSecurity {
     pub(crate) fn prepare_program(
-        program: &interl_core::v2::Program,
+        program: &interl_core::Program,
         fields: Vec<String>,
         provider: &dyn SecretProvider,
     ) -> Result<Self, Diagnostic> {
@@ -34,13 +34,14 @@ impl RunSecurity {
                 .iter()
                 .map(|i| &program.workflows()[*i])
                 .any(|w| {
-                    !w.definition().inputs.is_empty()
+                    !w.auth().response_last_uses().is_empty()
+                        || !w.definition().inputs.is_empty()
                         || !w.definition().outputs.is_empty()
                         || w.definition().nodes.iter().any(|n| {
                             matches!(
                                 n,
-                                interl_core::v2::ProgramNode::Extract { .. }
-                                    | interl_core::v2::ProgramNode::SetSession { .. }
+                                interl_core::ProgramNode::Extract { .. }
+                                    | interl_core::ProgramNode::SetSession { .. }
                             )
                         })
                 });
@@ -57,7 +58,7 @@ impl RunSecurity {
             sensitive_http_nodes,
         })
     }
-    pub(crate) fn program_snapshot(&self, program: &interl_core::v2::Program) -> Value {
+    pub(crate) fn program_snapshot(&self, program: &interl_core::Program) -> Value {
         self.redactor.program_snapshot(program)
     }
     pub(crate) fn text(&self, input: &str) -> String {

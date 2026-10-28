@@ -137,3 +137,71 @@ describe('run lifecycle', () => {
     expect(store.getState().error).not.toContain('M2');
   });
 });
+
+it('filters early callbacks against the acknowledged run ID and never revives a terminal task', async () => {
+  const { store, bridge, callbacks } = setup();
+  bridge.start.mockImplementationOnce(async (_source, receive) => {
+    callbacks.push(receive);
+    receive({ protocolVersion: 3, kind: 'event', event: event('wrong') });
+    receive({ protocolVersion: 3, kind: 'event', event: event('first') });
+    return { runId: 'first' };
+  });
+  await store.getState().start(exampleDocument);
+  expect(store.getState().events.map((event) => event.runId)).toEqual(['first']);
+  callbacks[0]({ protocolVersion: 3, kind: 'finished', report: report() });
+  callbacks[0]({ protocolVersion: 3, kind: 'failed', message: 'late failure' });
+  expect(store.getState().status).toBe('passed');
+});
+
+it('retains snapshot navigation and expansion through final reconciliation and resets them for a new run', async () => {
+  const { store, callbacks } = setup();
+  await store.getState().start(exampleDocument);
+  const first = event();
+  callbacks[0]({ protocolVersion: 3, kind: 'event', event: first });
+  store.getState().toggleExecution('node');
+  store.getState().showSnapshot(true);
+  store.setState({ selectedWorkflow: 'workflow', selectedNode: 'node' });
+  callbacks[0]({ protocolVersion: 3, kind: 'finished', report: { ...report(), deliveryDroppedEvents: 2 } });
+  expect(store.getState()).toMatchObject({
+    showRun: true,
+    expanded: { node: true },
+    selectedWorkflow: 'workflow',
+    selectedNode: 'node',
+  });
+  await store.getState().start(exampleDocument);
+  expect(store.getState()).toMatchObject({ expanded: {}, selectedWorkflow: null, selectedNode: null });
+});
+
+it('sorts and deduplicates live history and reconciles only the retained report events', async () => {
+  const { store, callbacks } = setup();
+  await store.getState().start(exampleDocument);
+  const later = { ...event(), sequence: 3 };
+  callbacks[0]({ protocolVersion: 3, kind: 'event', event: later });
+  callbacks[0]({ protocolVersion: 3, kind: 'event', event: event() });
+  callbacks[0]({ protocolVersion: 3, kind: 'event', event: later });
+  expect(store.getState().events.map((event) => event.sequence)).toEqual([1, 3]);
+  const complete = [event(), { ...event(), sequence: 2 }, later];
+  callbacks[0]({
+    protocolVersion: 3,
+    kind: 'finished',
+    report: { ...report(), events: complete, deliveryDroppedEvents: 1 },
+  });
+  expect(store.getState().events).toEqual(complete);
+});
+
+it('shows the final snapshot when run.started was not delivered and respects an explicit return to the scenario', async () => {
+  const { store, callbacks } = setup();
+  await store.getState().start(exampleDocument);
+  callbacks[0]({
+    protocolVersion: 3,
+    kind: 'event',
+    event: { ...event(), sequence: 2, type: 'user.spawned', payload: {} },
+  });
+  expect(store.getState().showRun).toBe(false);
+  callbacks[0]({ protocolVersion: 3, kind: 'finished', report: report() });
+  expect(store.getState().showRun).toBe(true);
+  await store.getState().start(exampleDocument);
+  store.getState().showSnapshot(false);
+  callbacks[1]({ protocolVersion: 3, kind: 'finished', report: report('second') });
+  expect(store.getState().showRun).toBe(false);
+});

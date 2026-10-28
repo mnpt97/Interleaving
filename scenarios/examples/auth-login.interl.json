@@ -2,9 +2,6 @@
   "schemaVersion": 2,
   "id": "auth-login",
   "name": "Single-user bearer login",
-  "environment": {
-    "variables": {}
-  },
   "clientProfiles": [
     {
       "id": "api",
@@ -38,18 +35,13 @@
         "mode": "shared",
         "identityId": "alice"
       },
-      "executor": {
-        "kind": "once"
-      },
       "lifecycle": {
         "iteration": {
-          "workflowId": "main",
-          "inputs": {}
+          "workflowId": "main"
         }
       }
     }
   ],
-  "assertions": [],
   "workflows": [
     {
       "nodes": [
@@ -98,8 +90,7 @@
                 "name": "token",
                 "prefix": "Bearer "
               }
-            },
-            "removeHeaders": []
+            }
           }
         },
         {
@@ -144,8 +135,6 @@
       ],
       "id": "main",
       "name": "Single-user bearer login",
-      "inputs": {},
-      "outputs": {},
       "layout": {
         "positions": {
           "start": {

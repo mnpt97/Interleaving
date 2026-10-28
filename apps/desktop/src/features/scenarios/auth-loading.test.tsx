@@ -51,6 +51,7 @@ describe('auth loading through the desktop wire boundary', () => {
         'end',
       ]);
       const workflow = store.getState().document!.workflows[0];
+      await store.getState().setMode('edit');
       store.getState().move('extract-token', { x: 900, y: 300 });
       expect(store.getState().document!.workflows[0].nodes).toBe(workflow.nodes);
       await store.getState().save();

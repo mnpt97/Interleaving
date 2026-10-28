@@ -1,0 +1,94 @@
+# yaml-language-server: $schema=../../schemas/scenario.schema.json
+schemaVersion: 2
+id: body-routing
+name: Response body routing
+clientProfiles:
+- id: api
+  baseUrl: http://127.0.0.1:8080
+  timeoutMs: 10000
+  headers:
+    accept: application/json
+groups:
+- id: visitors
+  clientProfileId: api
+  lifecycle:
+    iteration:
+      workflowId: main
+workflows:
+- nodes:
+  - id: start
+    type: start
+  - id: health
+    type: http
+    config:
+      method: GET
+      path: /routing-body
+    name: Check readiness
+  - id: result
+    type: exclusiveSplit
+    config:
+      sourceNodeId: health
+  - id: accepted
+    type: http
+    config:
+      method: GET
+      path: /echo
+  - id: fallback
+    type: http
+    config:
+      method: GET
+      path: /health
+  - id: joined
+    type: exclusiveMerge
+  - id: end
+    type: end
+  edges:
+  - id: begin
+    from: start
+    to: health
+  - id: check
+    from: health
+    to: result
+  - id: success
+    from: result
+    to: accepted
+    condition:
+      expression: response.status = 200 and response.body.value.status = true
+  - id: otherwise
+    from: result
+    to: fallback
+    default: true
+  - id: accepted-join
+    from: accepted
+    to: joined
+  - id: fallback-join
+    from: fallback
+    to: joined
+  - id: finish
+    from: joined
+    to: end
+  id: main
+  name: Response body routing
+  layout:
+    positions:
+      start:
+        x: 80
+        y: 160
+      health:
+        x: 260
+        y: 160
+      result:
+        x: 520
+        y: 160
+      accepted:
+        x: 700
+        y: 60
+      fallback:
+        x: 700
+        y: 260
+      joined:
+        x: 980
+        y: 160
+      end:
+        x: 1160
+        y: 160

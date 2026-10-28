@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 2,
+  "id": "hello-api",
+  "name": "Hello API",
+  "clientProfiles": [
+    {
+      "id": "api",
+      "baseUrl": "http://127.0.0.1:8080",
+      "timeoutMs": 10000,
+      "headers": {
+        "accept": "application/json"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "visitors",
+      "clientProfileId": "api",
+      "lifecycle": {
+        "iteration": {
+          "workflowId": "main"
+        }
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "id": "main",
+      "name": "Hello API",
+      "nodes": [
+        {
+          "type": "start",
+          "id": "start"
+        },
+        {
+          "type": "http",
+          "id": "health",
+          "config": {
+            "method": "GET",
+            "path": "/health"
+          }
+        },
+        {
+          "type": "end",
+          "id": "end"
+        },
+        {
+          "type": "exclusiveSplit",
+          "id": "exclusiveSplit-1",
+          "config": {
+            "sourceNodeId": "health"
+          }
+        },
+        {
+          "type": "http",
+          "id": "http-1",
+          "name": "HTTP Request",
+          "config": {
+            "method": "GET",
+            "path": "/health"
+          }
+        },
+        {
+          "type": "exclusiveMerge",
+          "id": "exclusiveSplit-2"
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-0",
+          "from": "start",
+          "to": "health"
+        },
+        {
+          "id": "edge-1",
+          "from": "health",
+          "to": "exclusiveSplit-1"
+        },
+        {
+          "id": "edge-2",
+          "from": "exclusiveSplit-1",
+          "to": "exclusiveSplit-2",
+          "condition": {
+            "expression": "response.status != 200"
+          }
+        },
+        {
+          "id": "edge-3",
+          "from": "exclusiveSplit-1",
+          "to": "http-1",
+          "condition": {
+            "expression": "response.status = 200"
+          }
+        },
+        {
+          "id": "edge-4",
+          "from": "http-1",
+          "to": "exclusiveSplit-2"
+        },
+        {
+          "id": "edge-5",
+          "from": "exclusiveSplit-2",
+          "to": "end"
+        }
+      ],
+      "layout": {
+        "positions": {
+          "end": {
+            "x": 820.0,
+            "y": 422.0
+          },
+          "exclusiveSplit-1": {
+            "x": 570.0,
+            "y": 72.0
+          },
+          "exclusiveSplit-2": {
+            "x": 900.0,
+            "y": 272.0
+          },
+          "health": {
+            "x": 290.0,
+            "y": 214.0
+          },
+          "http-1": {
+            "x": 840.0,
+            "y": 74.0
+          },
+          "start": {
+            "x": 80.0,
+            "y": 160.0
+          }
+        },
+        "connections": {
+          "edge-1": {
+            "source": "top",
+            "target": "left"
+          },
+          "edge-2": {
+            "source": "bottom",
+            "target": "left"
+          },
+          "edge-3": {
+            "source": "right",
+            "target": "left"
+          },
+          "edge-4": {
+            "source": "bottom",
+            "target": "top"
+          },
+          "edge-5": {
+            "source": "bottom",
+            "target": "top"
+          }
+        }
+      }
+    }
+  ]
+}

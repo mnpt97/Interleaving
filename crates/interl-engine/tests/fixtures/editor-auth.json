@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 2,
+  "id": "editor-auth",
+  "name": "Untitled scenario",
+  "environment": {
+    "variables": {}
+  },
+  "clientProfiles": [
+    {
+      "id": "client-1",
+      "baseUrl": "http://localhost:8080",
+      "timeoutMs": 5000,
+      "headers": {}
+    }
+  ],
+  "identities": [
+    {
+      "id": "identity-1",
+      "credentials": {
+        "username": {
+          "source": "env",
+          "name": "INTERL_USERNAME"
+        },
+        "password": {
+          "source": "env",
+          "name": "INTERL_PASSWORD"
+        }
+      }
+    }
+  ],
+  "assertions": [],
+  "groups": [
+    {
+      "id": "group-1",
+      "clientProfileId": "client-1",
+      "identityAssignment": {
+        "mode": "shared",
+        "identityId": "identity-1"
+      },
+      "executor": {
+        "kind": "once"
+      },
+      "lifecycle": {
+        "initialize": null,
+        "iteration": {
+          "workflowId": "workflow-1",
+          "inputs": {}
+        },
+        "cleanup": null,
+        "cleanupTimeoutMs": 2000
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "id": "workflow-1",
+      "name": "Iteration",
+      "inputs": {},
+      "outputs": {},
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "authenticate-1",
+          "type": "call",
+          "config": {
+            "workflowId": "authentication-1",
+            "inputs": {
+              "username": {
+                "source": "identity",
+                "field": "username"
+              },
+              "password": {
+                "source": "identity",
+                "field": "password"
+              }
+            }
+          }
+        },
+        {
+          "id": "end",
+          "type": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "from": "start",
+          "to": "authenticate-1"
+        },
+        {
+          "id": "edge-2",
+          "from": "authenticate-1",
+          "to": "end"
+        }
+      ],
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "end": {
+            "x": 600,
+            "y": 160
+          },
+          "authenticate-1": {
+            "x": 340,
+            "y": 160
+          }
+        }
+      }
+    },
+    {
+      "id": "authentication-1",
+      "name": "Authentication",
+      "inputs": {
+        "username": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        }
+      },
+      "outputs": {},
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "login",
+          "type": "http",
+          "name": "Login",
+          "config": {
+            "method": "POST",
+            "path": "/auth/login",
+            "headers": {},
+            "body": {
+              "kind": "jsonTemplate",
+              "fields": {
+                "username": {
+                  "source": "input",
+                  "name": "username"
+                },
+                "password": {
+                  "source": "input",
+                  "name": "password"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "extract",
+          "type": "extract",
+          "config": {
+            "sourceNodeId": "login",
+            "expression": "response.body.accessToken",
+            "output": "token"
+          }
+        },
+        {
+          "id": "session",
+          "type": "setSession",
+          "config": {
+            "setHeaders": {
+              "Authorization": {
+                "source": "extraction",
+                "nodeId": "extract",
+                "name": "token",
+                "prefix": "Bearer "
+              }
+            },
+            "removeHeaders": []
+          }
+        },
+        {
+          "id": "end",
+          "type": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "from": "start",
+          "to": "login"
+        },
+        {
+          "id": "edge-2",
+          "from": "login",
+          "to": "extract"
+        },
+        {
+          "id": "edge-3",
+          "from": "extract",
+          "to": "session"
+        },
+        {
+          "id": "edge-4",
+          "from": "session",
+          "to": "end"
+        }
+      ],
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "login": {
+            "x": 340,
+            "y": 160
+          },
+          "extract": {
+            "x": 600,
+            "y": 160
+          },
+          "session": {
+            "x": 860,
+            "y": 160
+          },
+          "end": {
+            "x": 1120,
+            "y": 160
+          }
+        }
+      }
+    }
+  ]
+}

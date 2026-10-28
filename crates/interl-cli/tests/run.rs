@@ -137,3 +137,63 @@ async fn interrupt_writes_partial_cancelled_report_and_exits_130() {
     assert_eq!(value["status"], "cancelled");
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn exclusive_routing_has_matching_json_yaml_reports_and_runtime_failure_exits() {
+    let server = support::TestServer::start().await;
+    let dir = directory();
+    for (case, source) in [
+        include_str!("../../../scenarios/examples/exclusive-routing.interl.json"),
+        include_str!("../../../scenarios/examples/exclusive-routing.interl.yaml"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let path = dir.join(if case == 0 {
+            "branch.json"
+        } else {
+            "branch.yaml"
+        });
+        let output = dir.join(format!("report-{case}.json"));
+        std::fs::write(
+            &path,
+            source.replace("http://127.0.0.1:8080", &server.base_url),
+        )
+        .unwrap();
+        assert_eq!(execute(path, output.clone()).await.status.code(), Some(0));
+        let report: Value = serde_json::from_slice(&std::fs::read(output).unwrap()).unwrap();
+        assert_eq!(report["summary"]["requests"], 2);
+        let routes: Vec<_> = report["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["type"] == "route.selected")
+            .collect();
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0]["payload"]["selectedEdgeKey"], "wf:0/edge:2");
+        assert_eq!(
+            routes[0]["payload"]["unselectedEdgeKeys"],
+            json!(["wf:0/edge:3"])
+        );
+    }
+    for (expression, kind) in [("true", "routeAmbiguous"), ("false", "routeNoMatch")] {
+        let mut value: Value = serde_json::from_str(include_str!(
+            "../../../scenarios/examples/exclusive-routing.interl.json"
+        ))
+        .unwrap();
+        value["clientProfiles"][0]["baseUrl"] = json!(server.base_url);
+        value["workflows"][0]["edges"][2]["condition"]["expression"] = json!(expression);
+        value["workflows"][0]["edges"][3]
+            .as_object_mut()
+            .unwrap()
+            .remove("default");
+        value["workflows"][0]["edges"][3]["condition"] = json!({"expression":expression});
+        let path = dir.join("bad-route.json");
+        let output = dir.join("failed.json");
+        std::fs::write(&path, value.to_string()).unwrap();
+        assert_eq!(execute(path, output.clone()).await.status.code(), Some(3));
+        let report: Value = serde_json::from_slice(&std::fs::read(output).unwrap()).unwrap();
+        assert_eq!(report["error"]["kind"], kind);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

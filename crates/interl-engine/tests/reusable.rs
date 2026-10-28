@@ -5,6 +5,104 @@ use interl_engine::*;
 use serde_json::{json, Value};
 use std::{ffi::OsString, sync::Mutex, time::Duration};
 const SOURCE: &str = include_str!("../../../scenarios/examples/reusable-auth.interl.json");
+
+/// Keep the living example executable in both file formats against the local fixture.
+#[tokio::test]
+async fn feature_showcase_runs_in_json_and_yaml_with_identical_safe_outcomes() {
+    let server = support::TestServer::start().await;
+    let json_source = include_str!("../../../scenarios/examples/feature-showcase.interl.json");
+    let yaml_source = include_str!("../../../scenarios/examples/feature-showcase.interl.yaml");
+    let json_document = parse_document(json_source, ScenarioFormat::Json).unwrap();
+    let yaml_document = parse_document(yaml_source, ScenarioFormat::Yaml).unwrap();
+    assert_eq!(json_document, yaml_document, "showcase formats diverged");
+
+    for (source, format, minimum) in [
+        (json_source, ScenarioFormat::Json, 1),
+        (yaml_source, ScenarioFormat::Yaml, 1),
+        (json_source, ScenarioFormat::Json, 4),
+        (yaml_source, ScenarioFormat::Yaml, 4),
+    ] {
+        // Override both the profile default and the explicit per-node URL.
+        let source = source.replace("http://127.0.0.1:8080", &server.base_url);
+        let document = parse_document(&source, format).unwrap();
+        let mut value = serde_json::to_value(document).unwrap();
+        // Keep automated execution quick while exercising the real waiting endpoint.
+        value["environment"]["variables"]["waitMs"] = json!(20);
+        value["groups"][0]["lifecycle"]["iteration"]["inputs"]["minimum"]["value"] = json!(minimum);
+        let document = parse(&value);
+        let report = collect(
+            PreparedRun::new_with_secret_provider(
+                &document,
+                RunOptions::default(),
+                &Provider::default(),
+            )
+            .unwrap()
+            .start(CancellationToken::new()),
+        )
+        .await;
+        assert_eq!(report.status, RunStatus::Passed, "{:?}", report.error);
+        assert_eq!(response_statuses(&report), vec![200; 12]);
+        for id in [
+            "wait-before-inspection",
+            "wait-for-health",
+            "wait-before-finishing",
+        ] {
+            let sent = report
+                .events
+                .iter()
+                .find(|event| {
+                    event.node_id.as_deref() == Some(id)
+                        && matches!(event.event, EventKind::RequestSent { .. })
+                })
+                .unwrap();
+            let received = report
+                .events
+                .iter()
+                .find(|event| {
+                    event.node_id.as_deref() == Some(id)
+                        && matches!(event.event, EventKind::ResponseReceived { .. })
+                })
+                .unwrap();
+            assert!(received.elapsed_ns - sent.elapsed_ns >= 20_000_000);
+        }
+        // Captured graph labels/attachment sides drive the independent Run canvas.
+        for workflow in report.graph["workflows"].as_array().unwrap() {
+            for node in workflow["nodes"].as_array().unwrap() {
+                assert!(node["name"].is_string());
+            }
+            for edge in workflow["edges"].as_array().unwrap() {
+                assert!(edge["sourceHandle"].is_string());
+                assert!(edge["targetHandle"].is_string());
+                if edge["id"] == "route-to-fallback" {
+                    assert_eq!(edge["sourceHandle"], "bottom");
+                }
+                if edge["id"] == "route-to-accepted" {
+                    assert_eq!(edge["sourceHandle"], "top");
+                }
+            }
+        }
+        let executed: Vec<_> = report
+            .events
+            .iter()
+            .filter_map(|event| {
+                matches!(event.event, EventKind::StepStarted { .. })
+                    .then_some(event.node_id.as_deref())
+                    .flatten()
+            })
+            .collect();
+        assert_eq!(executed.contains(&"accepted"), minimum == 1);
+        assert_eq!(executed.contains(&"fallback"), minimum == 4);
+        assert_eq!(
+            executed
+                .iter()
+                .filter(|node| **node == "extract-health")
+                .count(),
+            1
+        );
+        assert!(executed.contains(&"cleanup-health"));
+        safe(&report);
+    }
+}
 #[derive(Default)]
 struct Provider {
     calls: Mutex<Vec<String>>,
@@ -13,8 +111,8 @@ impl SecretProvider for Provider {
     fn lookup(&self, name: &str) -> Result<OsString, SecretLookupError> {
         self.calls.lock().unwrap().push(name.into());
         match name {
-            "INTERL_ALICE_USERNAME" => Ok("alice".into()),
-            "INTERL_ALICE_PASSWORD" => Ok("alice-password".into()),
+            "INTERL_ALICE_USERNAME" | "INTERL_USERNAME" => Ok("alice".into()),
+            "INTERL_ALICE_PASSWORD" | "INTERL_PASSWORD" => Ok("alice-password".into()),
             _ => Err(SecretLookupError::Missing),
         }
     }
@@ -432,4 +530,406 @@ async fn scalar_ports_response_metadata_and_call_outputs_keep_json_types() {
     assert_eq!(response_statuses(&report), [200, 200, 200]);
     assert!(provider.calls.lock().unwrap().is_empty());
     safe(&report);
+}
+
+#[tokio::test]
+async fn editor_auth_composite_retains_bearer_and_cookie_sessions_without_leaking_values() {
+    let server = support::TestServer::start().await;
+    for cookie in [false, true] {
+        let mut value: Value =
+            serde_json::from_str(include_str!("fixtures/editor-auth.json")).unwrap();
+        value["clientProfiles"][0]["baseUrl"] = json!(server.base_url);
+        if cookie {
+            let nodes = value["workflows"][1]["nodes"].as_array_mut().unwrap();
+            nodes.retain(|node| !matches!(node["type"].as_str(), Some("extract" | "setSession")));
+            value["workflows"][1]["layout"]["positions"]
+                .as_object_mut()
+                .unwrap()
+                .remove("extract");
+            value["workflows"][1]["layout"]["positions"]
+                .as_object_mut()
+                .unwrap()
+                .remove("session");
+            value["workflows"][1]["edges"] = json!([{"id":"edge-1","from":"start","to":"login"},{"id":"edge-5","from":"login","to":"end"}]);
+        }
+        let path = if cookie {
+            "/auth/cookie-me"
+        } else {
+            "/auth/me"
+        };
+        value["workflows"][0]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .insert(
+                2,
+                json!({"id":"protected","type":"http","config":{"method":"GET","path":path}}),
+            );
+        value["workflows"][0]["edges"][1]["to"] = json!("protected");
+        value["workflows"][0]["edges"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id":"edge-3","from":"protected","to":"end"}));
+        let provider = Provider::default();
+        let document = parse(&value);
+        let saved = interl_core::serialize_document(&document).unwrap();
+        let reopened = parse_document(&saved, ScenarioFormat::Json).unwrap();
+        let report = collect(
+            PreparedRun::new_with_secret_provider(&reopened, RunOptions::default(), &provider)
+                .unwrap()
+                .start(CancellationToken::new()),
+        )
+        .await;
+        assert_eq!(report.status, RunStatus::Passed);
+        assert_eq!(response_statuses(&report), [200, 200]);
+        assert_eq!(provider.calls.lock().unwrap().len(), 2);
+        assert!(!serde_json::to_string(&report).unwrap().contains("alice"));
+        safe(&report);
+    }
+}
+
+fn native_document(base: &str) -> Value {
+    let mut value: Value =
+        serde_json::from_str(include_str!("fixtures/editor-auth-native.json")).unwrap();
+    value["clientProfiles"][0]["baseUrl"] = json!(base);
+    value
+}
+fn linear_nodes(value: &mut Value, nodes: Vec<Value>) {
+    value["workflows"][0]["edges"] = json!(nodes
+        .windows(2)
+        .enumerate()
+        .map(|(i, p)| json!({"id":format!("e{i}"),"from":p[0]["id"],"to":p[1]["id"]}))
+        .collect::<Vec<_>>());
+    value["workflows"][0]["nodes"] = json!(nodes);
+    value["workflows"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("layout");
+}
+fn request(id: &str, path: &str) -> Value {
+    json!({"id":id,"type":"http","config":{"method":"GET","path":path}})
+}
+#[tokio::test]
+async fn native_editor_auth_roundtrips_json_yaml_and_inherits_bearer_or_cookie() {
+    let server = support::TestServer::start().await;
+    for cookie in [false, true] {
+        let mut value = native_document(&server.base_url);
+        let mut login = value["workflows"][0]["nodes"][1].clone();
+        if cookie {
+            login["config"]["mode"] = json!("cookie");
+
+            for field in ["tokenExpression", "headerName", "headerPrefix"] {
+                login["config"].as_object_mut().unwrap().remove(field);
+            }
+        }
+        linear_nodes(
+            &mut value,
+            vec![
+                json!({"id":"start","type":"start"}),
+                request("anonymous", "/auth/me"),
+                login,
+                request(
+                    "protected",
+                    if cookie {
+                        "/auth/cookie-me"
+                    } else {
+                        "/auth/me"
+                    },
+                ),
+                json!({"id":"end","type":"end"}),
+            ],
+        );
+        let document = parse(&value);
+        let saved = interl_core::serialize_document(&document).unwrap();
+        let reopened = parse_document(&saved, ScenarioFormat::Json).unwrap();
+        let yaml = include_str!("fixtures/editor-auth-native.yaml");
+        let yaml_document = parse_document(yaml, ScenarioFormat::Yaml).unwrap();
+        assert_eq!(
+            yaml_document,
+            parse(&native_document("http://localhost:8080"))
+        );
+        let report = collect(
+            PreparedRun::new_with_secret_provider(
+                &reopened,
+                Default::default(),
+                &Provider::default(),
+            )
+            .unwrap()
+            .start(CancellationToken::new()),
+        )
+        .await;
+        assert_eq!(report.status, RunStatus::Passed);
+        assert_eq!(response_statuses(&report), [401, 200, 200]);
+        assert_eq!(
+            report.graph["workflows"][0]["nodes"][2]["type"],
+            "authentication"
+        );
+        safe(&report);
+    }
+}
+#[tokio::test]
+async fn native_failed_auth_stops_and_cleanup_cannot_reuse_prior_session() {
+    let server = support::TestServer::start().await;
+    for path in [
+        "/auth/login-missing-token",
+        "/auth/login-malformed",
+        "/not-found",
+        "/auth/login",
+    ] {
+        let mut value = native_document(&server.base_url);
+        let first = value["workflows"][0]["nodes"][1].clone();
+        let mut failed = first.clone();
+        failed["id"] = json!("second");
+        failed["config"]["path"] = json!(path);
+        if path == "/auth/login" {
+            failed["config"]["username"]["name"] = json!("INTERL_PASSWORD");
+        }
+        linear_nodes(
+            &mut value,
+            vec![
+                json!({"id":"start","type":"start"}),
+                first,
+                failed,
+                request("never", "/echo"),
+                json!({"id":"end","type":"end"}),
+            ],
+        );
+        cleanup(&mut value, "/auth/cookie-me");
+        let report = collect(
+            PreparedRun::new_with_secret_provider(
+                &parse(&value),
+                Default::default(),
+                &Provider::default(),
+            )
+            .unwrap()
+            .start(CancellationToken::new()),
+        )
+        .await;
+        assert_eq!(report.status, RunStatus::Error);
+        assert_eq!(report.summary.requests, 3);
+        assert_eq!(response_statuses(&report).last(), Some(&401));
+        assert!(!report
+            .events
+            .iter()
+            .any(|e| e.node_id.as_deref() == Some("never")));
+        safe(&report);
+    }
+}
+#[tokio::test]
+async fn native_auth_replaces_all_headers_and_cookies_with_node_owned_credentials() {
+    use axum::{
+        extract::State,
+        http::HeaderMap,
+        routing::{get, post},
+        Json,
+    };
+    use std::sync::Arc;
+    let observations = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let app = axum::Router::new()
+        .route("/v1/login", post(|State(seen): State<Arc<Mutex<Vec<Value>>>>, headers: HeaderMap, Json(body): Json<Value>| async move {
+            seen.lock().unwrap().push(json!({"login":body["username"], "authorization":headers.get("authorization").and_then(|h|h.to_str().ok()), "cookie":headers.get("cookie").and_then(|h|h.to_str().ok()), "stale":headers.get("x-stale").and_then(|h|h.to_str().ok())}));
+            let user = body["username"].as_str().unwrap();
+            ([("set-cookie", format!("{user}_only=private-{user}; Path=/"))], Json(json!({"accessToken":format!("token-{user}")})))
+        }))
+        .route("/v1/check", get(|State(seen): State<Arc<Mutex<Vec<Value>>>>, headers: HeaderMap| async move {
+            seen.lock().unwrap().push(json!({"authorization":headers.get("authorization").and_then(|h|h.to_str().ok()), "cookie":headers.get("cookie").and_then(|h|h.to_str().ok()), "stale":headers.get("x-stale").and_then(|h|h.to_str().ok())}));
+            Json(json!({"ok":true}))
+        })).with_state(observations.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    struct Accounts;
+    impl SecretProvider for Accounts {
+        fn lookup(&self, name: &str) -> Result<OsString, SecretLookupError> {
+            Ok(match name {
+                "INTERL_USERNAME" => "alice",
+                "INTERL_PASSWORD" => "alice-password",
+                "BOB_USERNAME" => "bob",
+                "BOB_PASSWORD" => "bob-password",
+                _ => return Err(SecretLookupError::Missing),
+            }
+            .into())
+        }
+    }
+    let mut value = native_document(&base);
+    value["clientProfiles"][0]["headers"] =
+        json!({"Authorization":"stale-static", "Cookie":"stale=static"});
+    let mut first = value["workflows"][0]["nodes"][1].clone();
+    first["config"]["path"] = json!("/login");
+    let mut second = first.clone();
+    second["id"] = json!("second");
+    second["config"]["mode"] = json!("cookie");
+
+    for field in ["tokenExpression", "headerName", "headerPrefix"] {
+        second["config"].as_object_mut().unwrap().remove(field);
+    }
+    second["config"]["username"]["name"] = json!("BOB_USERNAME");
+    second["config"]["password"]["name"] = json!("BOB_PASSWORD");
+    let stale = json!({"id":"stale","type":"setSession","config":{"setHeaders":{"X-Stale":{"source":"literal","value":"old"}}}});
+    linear_nodes(
+        &mut value,
+        vec![
+            json!({"id":"start","type":"start"}),
+            stale,
+            first,
+            request("alice-check", "/check"),
+            second,
+            request("bob-check", "/check"),
+            json!({"id":"end","type":"end"}),
+        ],
+    );
+    let report = collect(
+        PreparedRun::new_with_secret_provider(&parse(&value), Default::default(), &Accounts)
+            .unwrap()
+            .start(CancellationToken::new()),
+    )
+    .await;
+    task.abort();
+    assert_eq!(report.status, RunStatus::Passed);
+    assert_eq!(response_statuses(&report), [200, 200, 200, 200]);
+    let seen = observations.lock().unwrap();
+    assert_eq!(seen.len(), 4);
+    assert_eq!(seen[0]["login"], "alice");
+    assert!(seen[0]["authorization"].is_null());
+    assert!(seen[0]["cookie"].is_null());
+    assert!(seen[0]["stale"].is_null());
+    assert_eq!(seen[1]["authorization"], "Bearer token-alice");
+    assert!(seen[1]["cookie"].as_str().unwrap().contains("alice_only"));
+    assert_eq!(seen[2]["login"], "bob");
+    assert!(seen[2]["authorization"].is_null());
+    assert!(seen[2]["cookie"].is_null());
+    assert!(seen[3]["authorization"].is_null());
+    assert_eq!(seen[3]["cookie"], "bob_only=private-bob");
+    let serialized = serde_json::to_string(&report).unwrap();
+    for secret in [
+        "alice-password",
+        "bob-password",
+        "token-alice",
+        "private-alice",
+        "private-bob",
+    ] {
+        assert!(!serialized.contains(secret));
+    }
+    safe(&report);
+}
+
+#[tokio::test]
+async fn node_target_overrides_preserve_prefix_and_transport_session() {
+    let server = support::TestServer::start().await;
+    let other = support::TestServer::start().await;
+    let mut value = native_document(&server.base_url);
+    let mut login = value["workflows"][0]["nodes"][1].clone();
+    login["config"]["baseUrl"] = json!(format!("{}/auth", server.base_url));
+    login["config"]["path"] = json!("/login");
+    let mut inherited = request("inherited", "/auth/me");
+    inherited["config"]["baseUrl"] = Value::Null;
+    inherited["config"]
+        .as_object_mut()
+        .unwrap()
+        .remove("baseUrl");
+    let mut overridden = request("overridden", "/me");
+    overridden["config"]["baseUrl"] = json!(format!("{}/auth/", other.base_url));
+    linear_nodes(
+        &mut value,
+        vec![
+            json!({"id":"start","type":"start"}),
+            login,
+            inherited,
+            overridden,
+            json!({"id":"end","type":"end"}),
+        ],
+    );
+    let report = collect(
+        PreparedRun::new_with_secret_provider(
+            &parse(&value),
+            Default::default(),
+            &Provider::default(),
+        )
+        .unwrap()
+        .start(CancellationToken::new()),
+    )
+    .await;
+    assert_eq!(report.status, RunStatus::Passed);
+    assert_eq!(response_statuses(&report), [200, 200, 401]);
+    safe(&report);
+}
+
+#[tokio::test]
+async fn cookie_auth_accepts_api_scoped_cookies_and_rejects_empty_sessions() {
+    use axum::{
+        http::HeaderMap,
+        routing::{get, post},
+        Json,
+    };
+    let app = axum::Router::new()
+        .route(
+            "/login",
+            post(|| async {
+                (
+                    [("set-cookie", "scoped=private-scoped-cookie; Path=/api")],
+                    Json(json!({"ok":true})),
+                )
+            }),
+        )
+        .route("/no-cookie", post(|| async { Json(json!({"ok":true})) }))
+        .route(
+            "/api/check",
+            get(|headers: HeaderMap| async move {
+                if headers.get("cookie").and_then(|h| h.to_str().ok())
+                    == Some("scoped=private-scoped-cookie")
+                {
+                    axum::http::StatusCode::OK
+                } else {
+                    axum::http::StatusCode::UNAUTHORIZED
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    for path in ["/login", "/no-cookie"] {
+        let mut value = native_document(&base);
+        let mut login = value["workflows"][0]["nodes"][1].clone();
+        login["config"]["mode"] = json!("cookie");
+
+        for field in ["tokenExpression", "headerName", "headerPrefix"] {
+            login["config"].as_object_mut().unwrap().remove(field);
+        }
+        login["config"]["path"] = json!(path);
+        linear_nodes(
+            &mut value,
+            vec![
+                json!({"id":"start","type":"start"}),
+                login,
+                request("protected", "/api/check"),
+                json!({"id":"end","type":"end"}),
+            ],
+        );
+        let report = collect(
+            PreparedRun::new_with_secret_provider(
+                &parse(&value),
+                Default::default(),
+                &Provider::default(),
+            )
+            .unwrap()
+            .start(CancellationToken::new()),
+        )
+        .await;
+        if path == "/login" {
+            assert_eq!(report.status, RunStatus::Passed);
+            assert_eq!(response_statuses(&report), [200, 200]);
+        } else {
+            assert_eq!(report.status, RunStatus::Error);
+            assert_eq!(report.summary.requests, 1);
+            assert_eq!(report.error.as_ref().unwrap().kind, "authenticationFailed");
+        }
+        assert!(!serde_json::to_string(&report)
+            .unwrap()
+            .contains("private-scoped-cookie"));
+        safe(&report);
+    }
+    task.abort();
 }

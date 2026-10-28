@@ -3,5 +3,11 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-set-theme", "dialog:allow-open", "dialog:allow-save"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-theme",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "core:window:allow-destroy"
+  ]
 }

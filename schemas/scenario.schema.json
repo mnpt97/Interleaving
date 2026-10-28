@@ -1,0 +1,1941 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ScenarioDocument",
+  "description": "The single persisted scenario model shared by JSON, YAML, the editor, and CLI. Parsing establishes the structural shape; [`crate::compile_document`] enforces semantic rules. Owning collections here avoids borrowing source text after parsing.",
+  "type": "object",
+  "required": [
+    "clientProfiles",
+    "groups",
+    "id",
+    "name",
+    "schemaVersion",
+    "workflows"
+  ],
+  "properties": {
+    "assertions": {
+      "description": "Reserved declarations; only an empty array is accepted today.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/EmptyDeclarations"
+        }
+      ]
+    },
+    "clientProfiles": {
+      "description": "Transport defaults available to workload groups.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ClientProfile"
+      }
+    },
+    "environment": {
+      "description": "Scenario-owned configuration variables, not process environment secrets.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Environment"
+        }
+      ]
+    },
+    "groups": {
+      "description": "Workload/lifecycle declarations; current compilation requires one group.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/WorkloadGroup"
+      }
+    },
+    "id": {
+      "description": "Stable identifier within the containing collection; display names may change independently.",
+      "type": "string"
+    },
+    "identities": {
+      "description": "Named secret-reference maps for explicit identity-field sources.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Identity"
+      }
+    },
+    "name": {
+      "description": "Display name or referenced name, as specified by the containing type.",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "description": "Persisted format discriminator; checked at parse/compile boundaries, independent of Rust module layout.",
+      "type": "integer",
+      "format": "uint32",
+      "maximum": 2,
+      "minimum": 2
+    },
+    "workflows": {
+      "description": "Reusable workflow definitions, each with its own local node/edge IDs.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/WorkflowDefinition"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "AuthenticationConfig": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "method",
+            "mode",
+            "password",
+            "passwordKey",
+            "path",
+            "tokenExpression",
+            "username",
+            "usernameKey"
+          ],
+          "properties": {
+            "baseUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "headerName": {
+              "type": "string"
+            },
+            "headerPrefix": {
+              "type": "string"
+            },
+            "method": {
+              "$ref": "#/definitions/HttpMethod"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "bearer"
+              ]
+            },
+            "password": {
+              "$ref": "#/definitions/SecretReference"
+            },
+            "passwordKey": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "tokenExpression": {
+              "type": "string"
+            },
+            "username": {
+              "$ref": "#/definitions/SecretReference"
+            },
+            "usernameKey": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "method",
+            "mode",
+            "password",
+            "passwordKey",
+            "path",
+            "username",
+            "usernameKey"
+          ],
+          "properties": {
+            "baseUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "method": {
+              "$ref": "#/definitions/HttpMethod"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "cookie"
+              ]
+            },
+            "password": {
+              "$ref": "#/definitions/SecretReference"
+            },
+            "passwordKey": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "username": {
+              "$ref": "#/definitions/SecretReference"
+            },
+            "usernameKey": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ClientProfile": {
+      "description": "Shared transport defaults selected by a workload group. Node base URL overrides affect destinations; timeout and literal headers remain transport defaults unless the request or session overrides them.",
+      "type": "object",
+      "required": [
+        "baseUrl",
+        "id",
+        "timeoutMs"
+      ],
+      "properties": {
+        "baseUrl": {
+          "description": "Absolute HTTP(S) transport base URL, including any shared path prefix.",
+          "type": "string"
+        },
+        "headers": {
+          "description": "Literal request/profile header defaults; omitted maps deserialize as empty.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "Stable identifier within the containing collection; display names may change independently.",
+          "type": "string"
+        },
+        "timeoutMs": {
+          "description": "Default request timeout in milliseconds; must be greater than zero.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ConnectionLayout": {
+      "description": "Drawing attachment points for one edge, keyed by its workflow-local edge ID.",
+      "type": "object",
+      "required": [
+        "source",
+        "target"
+      ],
+      "properties": {
+        "source": {
+          "description": "Side/corner used at the source node.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ConnectionSide"
+            }
+          ]
+        },
+        "target": {
+          "description": "Side/corner used at the target node.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ConnectionSide"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ConnectionSide": {
+      "description": "Supported node edges and diamond corners for canvas connections.",
+      "oneOf": [
+        {
+          "description": "Left edge/corner.",
+          "type": "string",
+          "enum": [
+            "left"
+          ]
+        },
+        {
+          "description": "Right edge/corner.",
+          "type": "string",
+          "enum": [
+            "right"
+          ]
+        },
+        {
+          "description": "Top edge/corner.",
+          "type": "string",
+          "enum": [
+            "top"
+          ]
+        },
+        {
+          "description": "Bottom edge/corner.",
+          "type": "string",
+          "enum": [
+            "bottom"
+          ]
+        }
+      ]
+    },
+    "EmptyDeclarations": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "Environment": {
+      "description": "Scenario-defined JSON variables used for explicit interpolation and scalar references. These are ordinary configuration values, not operating-system credential lookups.",
+      "type": "object",
+      "properties": {
+        "variables": {
+          "description": "Named JSON configuration values available for explicit interpolation and references.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "Executor": {
+      "description": "Supported workload scheduling policy; concurrent/ramping policies are not yet executable.",
+      "oneOf": [
+        {
+          "description": "Run one iteration for a single virtual user.",
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "once"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ExtractConfig": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "outputs",
+            "sourceNodeId"
+          ],
+          "properties": {
+            "outputs": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/ExtractOutput"
+              }
+            },
+            "sourceNodeId": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "expression",
+            "output",
+            "sourceNodeId"
+          ],
+          "properties": {
+            "expression": {
+              "type": "string"
+            },
+            "output": {
+              "type": "string"
+            },
+            "sourceNodeId": {
+              "type": "string"
+            },
+            "type": {
+              "$ref": "#/definitions/PortType"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ExtractOutput": {
+      "description": "One named, typed scalar extracted from a response body.",
+      "type": "object",
+      "required": [
+        "expression"
+      ],
+      "properties": {
+        "expression": {
+          "description": "Restricted FEEL property path evaluated by the engine.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Expected scalar type; an omitted type means string.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PortType"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "HttpMethod": {
+      "description": "HTTP methods supported by the request model. `Copy` means this small enum can be passed by value without calling `clone()`.",
+      "oneOf": [
+        {
+          "description": "Send an HTTP GET request.",
+          "type": "string",
+          "enum": [
+            "GET"
+          ]
+        },
+        {
+          "description": "Send an HTTP POST request.",
+          "type": "string",
+          "enum": [
+            "POST"
+          ]
+        },
+        {
+          "description": "Send an HTTP PUT request.",
+          "type": "string",
+          "enum": [
+            "PUT"
+          ]
+        },
+        {
+          "description": "Send an HTTP PATCH request.",
+          "type": "string",
+          "enum": [
+            "PATCH"
+          ]
+        },
+        {
+          "description": "Send an HTTP DELETE request.",
+          "type": "string",
+          "enum": [
+            "DELETE"
+          ]
+        }
+      ]
+    },
+    "Identity": {
+      "description": "Named credential references consumed by explicit identity-field mappings. The map contains descriptors only; raw credentials belong exclusively to the engine.",
+      "type": "object",
+      "required": [
+        "credentials",
+        "id"
+      ],
+      "properties": {
+        "credentials": {
+          "description": "Field-name to secret-reference map; no resolved credential values belong here.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/SecretReference"
+          }
+        },
+        "id": {
+          "description": "Stable identifier within the containing collection; display names may change independently.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "IdentityAssignment": {
+      "description": "Select an optional shared identity for explicit identity-field references. Authentication nodes own their own secret references and do not require this assignment.",
+      "oneOf": [
+        {
+          "description": "Use one optional named identity for this workload's explicit identity-field sources.",
+          "type": "object",
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "identityId": {
+              "description": "Assigned identity ID; `None` means no assigned identity.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "shared"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "InitializePhase": {
+      "description": "The lifecycle phase whose exports may feed iteration inputs.",
+      "oneOf": [
+        {
+          "description": "The successful initialization phase.",
+          "type": "string",
+          "enum": [
+            "initialize"
+          ]
+        }
+      ]
+    },
+    "InputPort": {
+      "description": "Declare an input's type and optional default. The custom deserializer distinguishes an absent default (`None`) from an explicit JSON null (`Some(Value::Null)`), which semantic validation must reject.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "default": {
+          "description": "Optional scalar fallback. Explicit null remains present for validation to reject."
+        },
+        "type": {
+          "description": "Declared scalar type; serialized as `type` because `type` is a Rust keyword.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PortType"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Layout": {
+      "description": "Optional editor positions keyed by workflow-local node ID. Layout affects presentation only; edges determine execution order.",
+      "type": "object",
+      "properties": {
+        "connections": {
+          "description": "Edge-local attachment sides. These affect drawing only, never execution.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ConnectionLayout"
+          }
+        },
+        "positions": {
+          "description": "Local node IDs mapped to finite canvas coordinates.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/Position"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Lifecycle": {
+      "description": "Optional initialization, required iteration, and optional bounded cleanup. All phases run in the same VU-owned session; frame-local workflow values stay scoped.",
+      "type": "object",
+      "required": [
+        "iteration"
+      ],
+      "properties": {
+        "cleanup": {
+          "description": "Optional workflow attempted after normal execution or eligible failures/cancellation.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkflowBinding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cleanupTimeoutMs": {
+          "description": "Deadline for the entire cleanup call tree in milliseconds; defaults to 2000.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "initialize": {
+          "description": "Optional workflow invoked before iteration; its declared exports may feed iteration.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkflowBinding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "iteration": {
+          "description": "Required workflow invoked once after successful initialization.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WorkflowBinding"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "MergeConfig": {
+      "description": "Join paired with an exclusive split; it never schedules parallel work.",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "OutputPort": {
+      "description": "Declare a typed exported scalar and where its value comes from.",
+      "type": "object",
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "description": "Declared scalar type; serialized as `type` because `type` is a Rust keyword.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PortType"
+            }
+          ]
+        },
+        "value": {
+          "description": "Literal JSON/text or an explicit scalar source, as selected by this variant/type.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ScalarSource"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "PortType": {
+      "description": "Supported scalar port types, checked without automatic coercion.",
+      "oneOf": [
+        {
+          "description": "A bounded UTF-8 string.",
+          "type": "string",
+          "enum": [
+            "string"
+          ]
+        },
+        {
+          "description": "An integer exactly representable by the desktop JavaScript runtime.",
+          "type": "string",
+          "enum": [
+            "integer"
+          ]
+        },
+        {
+          "description": "A boolean value, without string/numeric coercion.",
+          "type": "string",
+          "enum": [
+            "boolean"
+          ]
+        }
+      ]
+    },
+    "Position": {
+      "description": "One canvas coordinate pair. `f64` is a 64-bit floating-point number; validation rejects NaN and infinity before saving or executing the document.",
+      "type": "object",
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "description": "Horizontal canvas coordinate.",
+          "type": "number",
+          "format": "double"
+        },
+        "y": {
+          "description": "Vertical canvas coordinate.",
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProgramEdge": {
+      "description": "A directed connection between local node IDs, with a stable edge ID. Conditions/default routes are permitted only on exclusive split outputs.",
+      "type": "object",
+      "required": [
+        "from",
+        "id",
+        "to"
+      ],
+      "properties": {
+        "condition": {
+          "description": "Optional bounded, read-only FEEL predicate on a split output.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RouteCondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "default": {
+          "description": "Fallback-branch marker, serialized as `default`; only true is admitted.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "from": {
+          "description": "Local source-node ID.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Stable identifier within the containing collection; display names may change independently.",
+          "type": "string"
+        },
+        "to": {
+          "description": "Local destination-node ID.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProgramHeader": {
+      "description": "String-valued session-header sources with an optional literal prefix. Structured bodies and integer response status deliberately have no header variant.",
+      "oneOf": [
+        {
+          "description": "Use an explicit string and prefix.",
+          "type": "object",
+          "required": [
+            "source",
+            "value"
+          ],
+          "properties": {
+            "prefix": {
+              "description": "Literal text prepended to the resolved header string; defaults to empty.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "literal"
+              ]
+            },
+            "value": {
+              "description": "Literal payload retained exactly as authored.",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a scenario string variable.",
+          "type": "object",
+          "required": [
+            "name",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "prefix": {
+              "description": "Literal text prepended to the resolved header string; defaults to empty.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "environment"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read an assigned identity credential field in Rust.",
+          "type": "object",
+          "required": [
+            "field",
+            "source"
+          ],
+          "properties": {
+            "field": {
+              "description": "Credential or response-metadata field selected by this source.",
+              "type": "string"
+            },
+            "prefix": {
+              "description": "Literal text prepended to the resolved header string; defaults to empty.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "identity"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a string input in this invocation.",
+          "type": "object",
+          "required": [
+            "name",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "prefix": {
+              "description": "Literal text prepended to the resolved header string; defaults to empty.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "input"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a string from an earlier extraction.",
+          "type": "object",
+          "required": [
+            "name",
+            "nodeId",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "nodeId": {
+              "description": "Stable ID of an earlier producer in the same workflow.",
+              "type": "string"
+            },
+            "prefix": {
+              "description": "Literal text prepended to the resolved header string; defaults to empty.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "extraction"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a declared string export from an earlier workflow call.",
+          "type": "object",
+          "required": [
+            "name",
+            "nodeId",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "nodeId": {
+              "description": "Stable ID of an earlier producer in the same workflow.",
+              "type": "string"
+            },
+            "prefix": {
+              "description": "Literal text prepended to the resolved header string; defaults to empty.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "callOutput"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ProgramHttp": {
+      "description": "An HTTP node's persisted request configuration, including its optional target override.",
+      "type": "object",
+      "required": [
+        "method",
+        "path"
+      ],
+      "properties": {
+        "baseUrl": {
+          "description": "Optional target default/override including its path prefix; absence inherits the enclosing default.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "body": {
+          "description": "Optional literal or explicitly templated request body.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RequestBody"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "headers": {
+          "description": "Literal request/profile header defaults; omitted maps deserialize as empty.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "method": {
+          "description": "HTTP method to send; login validation restricts authentication to POST/PUT/PATCH.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/HttpMethod"
+            }
+          ]
+        },
+        "path": {
+          "description": "Request path starting with one slash, appended beneath the effective base URL prefix.",
+          "type": "string"
+        },
+        "timeoutMs": {
+          "description": "Request timeout in milliseconds; optional values inherit the client-profile default.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProgramNode": {
+      "description": "All node shapes understood by the schema. `#[serde(tag = \"type\")]` stores the variant name beside its fields rather than as a nested wrapper. Semantic compilation checks connectivity and the bounded exclusive-routing contract before any of these shapes can execute.",
+      "oneOf": [
+        {
+          "description": "Enter the workflow; exactly one Start is required.",
+          "type": "object",
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "description": "Stable local node identifier.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Optional display label; the node ID is shown when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "start"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Send one configured HTTP request in the current session.",
+          "type": "object",
+          "required": [
+            "config",
+            "id",
+            "type"
+          ],
+          "properties": {
+            "config": {
+              "description": "Configuration specific to this node variant.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ProgramHttp"
+                }
+              ]
+            },
+            "id": {
+              "description": "Stable local node identifier.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "http"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Log in with node-owned credentials and replace the previous session.",
+          "type": "object",
+          "required": [
+            "config",
+            "id",
+            "type"
+          ],
+          "properties": {
+            "config": {
+              "description": "Configuration specific to this node variant.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AuthenticationConfig"
+                }
+              ]
+            },
+            "id": {
+              "description": "Stable local node identifier.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "authentication"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a typed scalar from an earlier HTTP response through a bounded expression.",
+          "type": "object",
+          "required": [
+            "config",
+            "id",
+            "type"
+          ],
+          "properties": {
+            "config": {
+              "description": "Configuration specific to this node variant.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ExtractConfig"
+                }
+              ]
+            },
+            "id": {
+              "description": "Stable local node identifier.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Optional display label; the node ID is shown when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "extract"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Apply an atomic session-header update.",
+          "type": "object",
+          "required": [
+            "config",
+            "id",
+            "type"
+          ],
+          "properties": {
+            "config": {
+              "description": "Configuration specific to this node variant.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ProgramSession"
+                }
+              ]
+            },
+            "id": {
+              "description": "Stable local node identifier.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Optional display label; the node ID is shown when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "setSession"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Invoke a declared workflow in the same VU session with a new local frame.",
+          "type": "object",
+          "required": [
+            "config",
+            "id",
+            "type"
+          ],
+          "properties": {
+            "config": {
+              "description": "Configuration specific to this node variant.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/WorkflowBinding"
+                }
+              ]
+            },
+            "id": {
+              "description": "Stable local node identifier.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Optional display label; the node ID is shown when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "call"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Return the workflow's declared outputs.",
+          "type": "object",
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "description": "Stable local node identifier.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Optional display label; the node ID is shown when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "end"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Select exactly one conditional/default route in a structured region.",
+          "type": "object",
+          "required": [
+            "config",
+            "id",
+            "type"
+          ],
+          "properties": {
+            "config": {
+              "description": "Configuration specific to this node variant.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/SplitConfig"
+                }
+              ]
+            },
+            "id": {
+              "description": "Stable local node identifier.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Optional display label; the node ID is shown when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "exclusiveSplit"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Rejoin the selected arm of the paired exclusive split.",
+          "type": "object",
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "config": {
+              "description": "Configuration specific to this node variant.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/MergeConfig"
+                }
+              ]
+            },
+            "id": {
+              "description": "Stable local node identifier.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Optional display label; the node ID is shown when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "exclusiveMerge"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ProgramSession": {
+      "description": "An atomic session-header update: validated additions/replacements and removals. The engine validates the complete operation before mutating its session.",
+      "type": "object",
+      "properties": {
+        "removeHeaders": {
+          "description": "Header names to suppress/remove in the same atomic update.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "setHeaders": {
+          "description": "Header additions/replacements with explicit scalar descriptors.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ProgramHeader"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProgramTemplate": {
+      "description": "Recursive JSON composition whose leaf values may be explicit scalar references. `Object` and `Array` own recursive collections, so the enum has a finite size without requiring a `Box` around every child; containers allocate their elements.",
+      "oneOf": [
+        {
+          "description": "Embed literal JSON as-is, including structured payloads.",
+          "type": "object",
+          "required": [
+            "source",
+            "value"
+          ],
+          "properties": {
+            "source": {
+              "type": "string",
+              "enum": [
+                "literal"
+              ]
+            },
+            "value": {
+              "description": "Literal payload retained exactly as authored."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a named scenario variable.",
+          "type": "object",
+          "required": [
+            "name",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "environment"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read an assigned identity credential field in Rust.",
+          "type": "object",
+          "required": [
+            "field",
+            "source"
+          ],
+          "properties": {
+            "field": {
+              "description": "Credential or response-metadata field selected by this source.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "identity"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a current-invocation input.",
+          "type": "object",
+          "required": [
+            "name",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "input"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read an earlier local extraction output.",
+          "type": "object",
+          "required": [
+            "name",
+            "nodeId",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "nodeId": {
+              "description": "Stable ID of an earlier producer in the same workflow.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "extraction"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read an earlier local call's declared output.",
+          "type": "object",
+          "required": [
+            "name",
+            "nodeId",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "nodeId": {
+              "description": "Stable ID of an earlier producer in the same workflow.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "callOutput"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read supported metadata from an earlier HTTP response.",
+          "type": "object",
+          "required": [
+            "field",
+            "nodeId",
+            "source"
+          ],
+          "properties": {
+            "field": {
+              "description": "Credential or response-metadata field selected by this source.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ResponseField"
+                }
+              ]
+            },
+            "nodeId": {
+              "description": "Stable ID of an earlier producer in the same workflow.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "response"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Recursively compose object properties.",
+          "type": "object",
+          "required": [
+            "fields",
+            "source"
+          ],
+          "properties": {
+            "fields": {
+              "description": "Named child templates used to compose an object.",
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/ProgramTemplate"
+              }
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "object"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Recursively compose array elements, preserving their order.",
+          "type": "object",
+          "required": [
+            "items",
+            "source"
+          ],
+          "properties": {
+            "items": {
+              "description": "Child templates used to compose an array.",
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ProgramTemplate"
+              }
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "array"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "RequestBody": {
+      "description": "Choose literal JSON, literal text, or an explicitly templated JSON object. Literal JSON is never interpreted as reference descriptors. The Serde `kind` tag makes these distinct serialized variants, avoiding ambiguous payload inference.",
+      "oneOf": [
+        {
+          "description": "Send literal JSON without interpreting embedded objects as references.",
+          "type": "object",
+          "required": [
+            "kind",
+            "value"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "json"
+              ]
+            },
+            "value": {
+              "description": "Literal payload retained exactly as authored."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Send literal UTF-8 text.",
+          "type": "object",
+          "required": [
+            "kind",
+            "value"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "text"
+              ]
+            },
+            "value": {
+              "description": "Literal payload retained exactly as authored.",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Build a JSON object from explicit template descriptors at runtime.",
+          "type": "object",
+          "required": [
+            "fields",
+            "kind"
+          ],
+          "properties": {
+            "fields": {
+              "description": "Named child templates used to compose an object.",
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/ProgramTemplate"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "jsonTemplate"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ResponseField": {
+      "description": "HTTP response metadata currently available as a scalar source.",
+      "oneOf": [
+        {
+          "description": "The integer HTTP response status code.",
+          "type": "string",
+          "enum": [
+            "status"
+          ]
+        }
+      ]
+    },
+    "RouteCondition": {
+      "description": "Restricted route-expression source text, compiled before run preparation.",
+      "type": "object",
+      "required": [
+        "expression"
+      ],
+      "properties": {
+        "expression": {
+          "description": "Restricted FEEL expression text; compilation admits only the supported subset.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScalarSource": {
+      "description": "Describe a scalar producer without storing a resolved credential or runtime value. Each enum variant carries only the fields valid for that `source` tag. References to local producers must be earlier in the same invocation; lifecycle access is restricted.",
+      "oneOf": [
+        {
+          "description": "Use a scalar literal directly.",
+          "type": "object",
+          "required": [
+            "source",
+            "value"
+          ],
+          "properties": {
+            "source": {
+              "type": "string",
+              "enum": [
+                "literal"
+              ]
+            },
+            "value": {
+              "description": "Literal payload retained exactly as authored."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a named value from scenario configuration variables.",
+          "type": "object",
+          "required": [
+            "name",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "environment"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a credential field from the workload's assigned identity.",
+          "type": "object",
+          "required": [
+            "field",
+            "source"
+          ],
+          "properties": {
+            "field": {
+              "description": "Credential or response-metadata field selected by this source.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "identity"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read an input of the current workflow invocation.",
+          "type": "object",
+          "required": [
+            "name",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "input"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a named string from an earlier local extraction.",
+          "type": "object",
+          "required": [
+            "name",
+            "nodeId",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "nodeId": {
+              "description": "Stable ID of an earlier producer in the same workflow.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "extraction"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a declared export from an earlier local workflow call.",
+          "type": "object",
+          "required": [
+            "name",
+            "nodeId",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "nodeId": {
+              "description": "Stable ID of an earlier producer in the same workflow.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "callOutput"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read supported metadata from an earlier local HTTP response.",
+          "type": "object",
+          "required": [
+            "field",
+            "nodeId",
+            "source"
+          ],
+          "properties": {
+            "field": {
+              "description": "Credential or response-metadata field selected by this source.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ResponseField"
+                }
+              ]
+            },
+            "nodeId": {
+              "description": "Stable ID of an earlier producer in the same workflow.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "response"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Read a declared initialization export in an allowed lifecycle binding.",
+          "type": "object",
+          "required": [
+            "name",
+            "phase",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Referenced port/output/variable name, or this node's display name.",
+              "type": "string"
+            },
+            "phase": {
+              "description": "Lifecycle phase that owns the referenced export.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/InitializePhase"
+                }
+              ]
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "lifecycle"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SecretReference": {
+      "description": "A supported external secret source, currently an operating-system environment variable. This differs from ordinary scenario `environment.variables`, which are stored configuration.",
+      "oneOf": [
+        {
+          "description": "Read an operating-system environment variable during engine preparation.",
+          "type": "object",
+          "required": [
+            "name",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "description": "Name of the process environment variable; never its resolved value.",
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "env"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SplitConfig": {
+      "description": "Response source and explicit scalar bindings for a structured exclusive split.",
+      "type": "object",
+      "required": [
+        "sourceNodeId"
+      ],
+      "properties": {
+        "inputs": {
+          "description": "Explicit scalar bindings exposed as inputs.<name> in route conditions.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ScalarSource"
+          }
+        },
+        "sourceNodeId": {
+          "description": "Local producer node whose response/status is consumed by this configuration.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "WorkflowBinding": {
+      "description": "Invoke a workflow by stable ID with explicit mappings to its input ports. The empty-map default permits workflows that have no required inputs.",
+      "type": "object",
+      "required": [
+        "workflowId"
+      ],
+      "properties": {
+        "inputs": {
+          "description": "Named workflow input declarations or bindings, depending on this type.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ScalarSource"
+          }
+        },
+        "workflowId": {
+          "description": "Stable ID of the workflow to invoke.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "WorkflowDefinition": {
+      "description": "A reusable graph with invocation-local inputs, outputs, nodes, edges, and layout. IDs are local to this definition; separate invocations do not share temporary values.",
+      "type": "object",
+      "required": [
+        "edges",
+        "id",
+        "name",
+        "nodes"
+      ],
+      "properties": {
+        "edges": {
+          "description": "Directed local connections that determine execution order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProgramEdge"
+          }
+        },
+        "id": {
+          "description": "Stable identifier within the containing collection; display names may change independently.",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Named workflow input declarations or bindings, depending on this type.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/InputPort"
+          }
+        },
+        "layout": {
+          "description": "Optional editor-only positions; omitted when absent and never used as a schedule.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Layout"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "description": "Display name or referenced name, as specified by the containing type.",
+          "type": "string"
+        },
+        "nodes": {
+          "description": "Local node definitions; vector order does not determine execution order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProgramNode"
+          }
+        },
+        "outputs": {
+          "description": "Named scalar exports evaluated when this workflow successfully returns.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/OutputPort"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "WorkloadGroup": {
+      "description": "Bind transport defaults and lifecycle workflows for one virtual user. Compilation currently requires exactly one group with the once executor.",
+      "type": "object",
+      "required": [
+        "clientProfileId",
+        "id",
+        "lifecycle"
+      ],
+      "properties": {
+        "clientProfileId": {
+          "description": "ID of the declared client profile supplying transport defaults.",
+          "type": "string"
+        },
+        "executor": {
+          "description": "Scheduling policy; currently one execution by one virtual user.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Executor"
+            }
+          ]
+        },
+        "id": {
+          "description": "Stable identifier within the containing collection; display names may change independently.",
+          "type": "string"
+        },
+        "identityAssignment": {
+          "description": "Optional identity used by explicit identity-field mappings.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/IdentityAssignment"
+            }
+          ]
+        },
+        "lifecycle": {
+          "description": "Workflow bindings executed during initialize, iteration, and cleanup.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Lifecycle"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

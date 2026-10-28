@@ -1,16 +1,19 @@
+//! Borrow scalar sources until an owned request, input, or output is required.
 use super::*;
-enum ScalarRef<'a> {
+pub(super) enum ScalarRef<'a> {
     Value(&'a Value),
     String(&'a str),
 }
 impl ScalarRef<'_> {
+    /// Measures the JSON representation while retaining a borrowed scalar.
     fn bytes(&self) -> usize {
         match self {
-            Self::Value(v) => serde_json::to_vec(v).expect("scalar").len(),
-            Self::String(s) => serde_json::to_vec(s).expect("string scalar").len(),
+            Self::Value(v) => crate::budget::value_bytes(v),
+            Self::String(s) => crate::budget::string_bytes(s),
         }
     }
-    fn owned(&self) -> Value {
+    /// Copies only when an input, output, or request must own its resolved value.
+    pub(super) fn owned(&self) -> Value {
         match self {
             Self::Value(v) => (*v).clone(),
             Self::String(s) => json!(s),
@@ -18,6 +21,7 @@ impl ScalarRef<'_> {
     }
 }
 impl Runtime {
+    /// Materializes bounded templates and applies node overrides or profile URL defaults.
     pub(super) fn prepare_http(
         &self,
         frame: &Frame,
@@ -38,21 +42,32 @@ impl Runtime {
                         ))
                     })
                     .collect::<Result<serde_json::Map<_, _>, RunFailure>>()?;
-                self.session.prepare_resolved(
+                self.session.prepare_target(
                     &cfg,
                     &self.program.document().environment.variables,
-                    ResolvedBody::Json(Value::Object(body)),
+                    Some(ResolvedBody::Json(Value::Object(body))),
+                    http.base_url
+                        .as_deref()
+                        .or(scenario_base_url(self.program.document())),
                 )?
             }
-            _ => self
-                .session
-                .prepare(&cfg, &self.program.document().environment.variables)?,
+            _ => self.session.prepare_target(
+                &cfg,
+                &self.program.document().environment.variables,
+                None,
+                http.base_url
+                    .as_deref()
+                    .or(scenario_base_url(self.program.document())),
+            )?,
         };
         check(cancel)?;
         Ok(request)
     }
 
-    fn scalar<'a>(
+    /// Resolves an invocation-scoped source by borrowing its value.
+    /// The explicit lifetime ties the result to the source and runtime storage; it
+    /// cannot outlive the invocation or leak into an unrelated call.
+    pub(super) fn scalar<'a>(
         &'a self,
         source: &'a ScalarSource,
         frame: Option<&'a Frame>,
@@ -83,7 +98,7 @@ impl Runtime {
                     .ok_or_else(|| failure("valueNotAvailable", "Invocation source unavailable."))?
                     .extraction
                     .output(node_id, name)
-                    .map(|v| ScalarRef::String(v.expose()))
+                    .map(|v| ScalarRef::Value(v.value()))
                     .map_err(Into::into)
             }
             _ => source
@@ -94,6 +109,7 @@ impl Runtime {
             .map(ScalarRef::Value)
             .ok_or_else(|| failure("valueNotAvailable", "Required scalar value is unavailable."))
     }
+    /// Computes remaining storage across active and suspended invocation frames.
     pub(super) fn extraction_budget(&self, frame: &Frame) -> Result<(usize, usize), RunFailure> {
         let mut count = 0;
         let mut bytes = 0;
@@ -103,7 +119,7 @@ impl Runtime {
             bytes += b + f
                 .values
                 .values()
-                .map(|v| serde_json::to_vec(v).expect("scalar").len())
+                .map(crate::budget::value_bytes)
                 .sum::<usize>();
         }
         if count > 128 || bytes > 65536 {
@@ -115,6 +131,7 @@ impl Runtime {
         let (n, b, _) = frame.extraction.usage();
         Ok((n + 128 - count, b + 65536 - bytes))
     }
+    /// Rejects aggregate scalar or response storage beyond the run-wide limits.
     pub(super) fn capacity(
         &self,
         entries: usize,
@@ -130,7 +147,7 @@ impl Runtime {
             total += b + f
                 .values
                 .values()
-                .map(|v| serde_json::to_vec(v).expect("scalar").len())
+                .map(crate::budget::value_bytes)
                 .sum::<usize>();
             body += r;
         }
@@ -143,6 +160,7 @@ impl Runtime {
             Ok(())
         }
     }
+    /// Resolves call inputs, checks port types, and registers strings for redaction.
     pub(super) fn bindings(
         &mut self,
         binding: &WorkflowBinding,
@@ -152,14 +170,10 @@ impl Runtime {
         let flow = self
             .program
             .workflow_index(&binding.workflow_id)
-            .expect("validated workflow");
+            .ok_or_else(|| failure("invalidProgram", "Bound workflow is unavailable."))?;
         let ports = &self.program.workflows()[flow].definition().inputs;
         let mut values = BTreeMap::new();
-        let mut bytes = init.map_or(0, |m| {
-            m.values()
-                .map(|v| serde_json::to_vec(v).expect("scalar").len())
-                .sum()
-        });
+        let mut bytes = init.map_or(0, |m| m.values().map(crate::budget::value_bytes).sum());
         let mut base = init.map_or(0, BTreeMap::len);
         let mut responses = 0;
         if let Some(p) = parent {
@@ -168,7 +182,7 @@ impl Runtime {
             bytes += b + p
                 .values
                 .values()
-                .map(|v| serde_json::to_vec(v).expect("scalar").len())
+                .map(crate::budget::value_bytes)
                 .sum::<usize>();
             responses += r;
         }
@@ -200,6 +214,7 @@ impl Runtime {
         }
         Ok(values)
     }
+    /// Transfers declared outputs into owned storage under the aggregate value budget.
     pub(super) fn outputs(&mut self, frame: &Frame) -> Result<BTreeMap<String, Value>, RunFailure> {
         let mut outputs = BTreeMap::new();
         let mut bytes = 0;
@@ -213,7 +228,7 @@ impl Runtime {
                     + frame
                         .values
                         .values()
-                        .map(|v| serde_json::to_vec(v).expect("scalar").len())
+                        .map(crate::budget::value_bytes)
                         .sum::<usize>()
                     + value.bytes(),
                 r,
@@ -235,6 +250,7 @@ impl Runtime {
         }
         Ok(outputs)
     }
+    /// Recursively composes a JSON request with depth, node-count, and cancellation checks.
     pub(super) fn template(
         &self,
         value: &ProgramTemplate,
@@ -271,10 +287,17 @@ impl Runtime {
                     .collect::<Result<_, _>>()?,
             ),
             _ => self
-                .scalar(&value.scalar().expect("scalar template"), Some(frame), None)?
+                .scalar(
+                    &value.scalar().ok_or_else(|| {
+                        failure("invalidProgram", "Scalar template is unavailable.")
+                    })?,
+                    Some(frame),
+                    None,
+                )?
                 .owned(),
         })
     }
+    /// Resolves bounded string headers before atomically updating session state.
     pub(super) fn session_update(
         &mut self,
         config: &ProgramSession,

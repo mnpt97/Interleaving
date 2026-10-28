@@ -1,0 +1,617 @@
+# yaml-language-server: $schema=../../schemas/scenario.schema.json
+schemaVersion: 2
+id: feature-showcase
+name: Feature showcase
+environment:
+  variables:
+    label: feature-showcase
+    waitMs: 2000
+clientProfiles:
+- id: local
+  baseUrl: http://127.0.0.1:8080
+  timeoutMs: 10000
+  headers:
+    accept: application/json
+identities:
+- id: demo-user
+  credentials:
+    username:
+      source: env
+      name: INTERL_ALICE_USERNAME
+    password:
+      source: env
+      name: INTERL_ALICE_PASSWORD
+groups:
+- id: showcase
+  clientProfileId: local
+  identityAssignment:
+    mode: shared
+    identityId: demo-user
+  lifecycle:
+    initialize:
+      workflowId: initialize
+    iteration:
+      workflowId: main
+      inputs:
+        label:
+          source: lifecycle
+          phase: initialize
+          name: label
+        minimum:
+          source: literal
+          value: 1
+    cleanup:
+      workflowId: cleanup
+workflows:
+- id: main
+  name: Route and reuse typed results
+  inputs:
+    label:
+      type: string
+    minimum:
+      type: integer
+      default: 1
+  nodes:
+  - id: start
+    type: start
+    name: Start
+  - id: wait-before-inspection
+    name: Wait before inspection
+    type: http
+    config:
+      method: POST
+      path: /long-poll
+      body:
+        kind: jsonTemplate
+        fields:
+          timeoutMs:
+            source: environment
+            name: waitMs
+  - id: inspect
+    type: call
+    name: Inspect readiness
+    config:
+      workflowId: inspect
+      inputs:
+        minimum:
+          source: input
+          name: minimum
+  - id: health
+    type: http
+    name: Health
+    config:
+      method: GET
+      path: /routing-body
+  - id: route
+    type: exclusiveSplit
+    name: Ready?
+    config:
+      sourceNodeId: health
+      inputs:
+        ready:
+          source: callOutput
+          nodeId: inspect
+          name: ready
+        attempts:
+          source: callOutput
+          nodeId: inspect
+          name: attempts
+        label:
+          source: callOutput
+          nodeId: inspect
+          name: label
+        status:
+          source: callOutput
+          nodeId: inspect
+          name: status
+        minimum:
+          source: callOutput
+          nodeId: inspect
+          name: minimum
+  - id: accepted
+    type: http
+    name: Accepted
+    config:
+      method: POST
+      path: /echo?route=ready
+      baseUrl: http://127.0.0.1:8080
+      headers:
+        x-request: showcase
+      body:
+        kind: jsonTemplate
+        fields:
+          label:
+            source: input
+            name: label
+          result:
+            source: object
+            fields:
+              ready:
+                source: callOutput
+                nodeId: inspect
+                name: ready
+              attempts:
+                source: callOutput
+                nodeId: inspect
+                name: attempts
+              label:
+                source: callOutput
+                nodeId: inspect
+                name: label
+              status:
+                source: callOutput
+                nodeId: inspect
+                name: status
+          tags:
+            source: array
+            items:
+            - source: literal
+              value: showcase
+            - source: environment
+              name: label
+          identity:
+            source: identity
+            field: username
+  - id: fallback
+    type: http
+    name: Fallback
+    config:
+      method: POST
+      path: /echo
+      body:
+        kind: json
+        value:
+          route: fallback
+  - id: joined
+    type: exclusiveMerge
+    name: Continue
+  - id: wait-before-finishing
+    name: Wait before finishing
+    type: http
+    config:
+      method: POST
+      path: /long-poll
+      body:
+        kind: jsonTemplate
+        fields:
+          timeoutMs:
+            source: environment
+            name: waitMs
+  - id: remove-session
+    type: setSession
+    name: Remove temporary header
+    config:
+      removeHeaders:
+      - x-showcase
+  - id: literal-text
+    type: http
+    name: Literal Text
+    config:
+      method: POST
+      path: /echo
+      body:
+        kind: text
+        value: showcase complete
+  - id: end
+    type: end
+    name: Finish
+  edges:
+  - id: start-to-inspect
+    from: start
+    to: wait-before-inspection
+  - id: wait-before-inspection-to-inspect
+    from: wait-before-inspection
+    to: inspect
+  - id: inspect-to-health
+    from: inspect
+    to: health
+  - id: health-to-route
+    from: health
+    to: route
+  - id: route-to-accepted
+    from: route
+    to: accepted
+    condition:
+      expression: response.status = 200 and response.body.value.status = true and
+        inputs.ready = true and inputs.attempts >= inputs.minimum and inputs.label
+        != "unavailable" and inputs.status = 200
+  - id: route-to-fallback
+    from: route
+    to: fallback
+    default: true
+  - id: accepted-to-joined
+    from: accepted
+    to: joined
+  - id: fallback-to-joined
+    from: fallback
+    to: joined
+  - id: joined-to-remove-session
+    from: joined
+    to: wait-before-finishing
+  - id: wait-before-finishing-to-remove-session
+    from: wait-before-finishing
+    to: remove-session
+  - id: remove-session-to-literal-text
+    from: remove-session
+    to: literal-text
+  - id: literal-text-to-end
+    from: literal-text
+    to: end
+  layout:
+    positions:
+      start:
+        x: 80
+        y: 160
+      inspect:
+        x: 600
+        y: 160
+      health:
+        x: 860
+        y: 160
+      route:
+        x: 1120
+        y: 160
+      accepted:
+        x: 1380
+        y: 60
+      fallback:
+        x: 1380
+        y: 260
+      joined:
+        x: 1640
+        y: 160
+      remove-session:
+        x: 2160
+        y: 160
+      literal-text:
+        x: 2420
+        y: 160
+      end:
+        x: 2680
+        y: 160
+      wait-before-inspection:
+        x: 340
+        y: 160
+      wait-before-finishing:
+        x: 1900
+        y: 160
+    connections:
+      start-to-inspect:
+        source: right
+        target: left
+      inspect-to-health:
+        source: right
+        target: left
+      health-to-route:
+        source: right
+        target: left
+      route-to-accepted:
+        source: top
+        target: left
+      route-to-fallback:
+        source: bottom
+        target: left
+      accepted-to-joined:
+        source: right
+        target: left
+      fallback-to-joined:
+        source: right
+        target: left
+      joined-to-remove-session:
+        source: right
+        target: left
+      remove-session-to-literal-text:
+        source: right
+        target: left
+      literal-text-to-end:
+        source: right
+        target: left
+      wait-before-inspection-to-inspect:
+        source: right
+        target: left
+      wait-before-finishing-to-remove-session:
+        source: right
+        target: left
+- id: initialize
+  name: Authenticate and initialize
+  outputs:
+    label:
+      type: string
+      value:
+        source: environment
+        name: label
+  nodes:
+  - id: start
+    type: start
+    name: Start
+  - id: bearer-login
+    type: authentication
+    name: Bearer authentication
+    config:
+      method: POST
+      path: /auth/login
+      mode: bearer
+      username:
+        source: env
+        name: INTERL_ALICE_USERNAME
+      password:
+        source: env
+        name: INTERL_ALICE_PASSWORD
+      usernameKey: username
+      passwordKey: password
+      tokenExpression: response.body.accessToken
+  - id: verify-bearer
+    type: http
+    name: Verify Bearer
+    config:
+      method: GET
+      path: /auth/me
+  - id: cookie-login
+    type: authentication
+    name: Cookie authentication
+    config:
+      method: POST
+      path: /auth/login
+      mode: cookie
+      username:
+        source: env
+        name: INTERL_ALICE_USERNAME
+      password:
+        source: env
+        name: INTERL_ALICE_PASSWORD
+      usernameKey: username
+      passwordKey: password
+  - id: verify-cookie
+    type: http
+    name: Verify Cookie
+    config:
+      method: GET
+      path: /auth/cookie-me
+  - id: set-session
+    type: setSession
+    name: Set scenario header
+    config:
+      setHeaders:
+        x-showcase:
+          source: environment
+          name: label
+  - id: end
+    type: end
+    name: Finish
+  edges:
+  - id: start-to-bearer-login
+    from: start
+    to: bearer-login
+  - id: bearer-login-to-verify-bearer
+    from: bearer-login
+    to: verify-bearer
+  - id: verify-bearer-to-cookie-login
+    from: verify-bearer
+    to: cookie-login
+  - id: cookie-login-to-verify-cookie
+    from: cookie-login
+    to: verify-cookie
+  - id: verify-cookie-to-set-session
+    from: verify-cookie
+    to: set-session
+  - id: set-session-to-end
+    from: set-session
+    to: end
+  layout:
+    positions:
+      start:
+        x: 80
+        y: 160
+      bearer-login:
+        x: 340
+        y: 160
+      verify-bearer:
+        x: 600
+        y: 160
+      cookie-login:
+        x: 860
+        y: 160
+      verify-cookie:
+        x: 1120
+        y: 160
+      set-session:
+        x: 1380
+        y: 160
+      end:
+        x: 1640
+        y: 160
+    connections:
+      start-to-bearer-login:
+        source: right
+        target: left
+      bearer-login-to-verify-bearer:
+        source: right
+        target: left
+      verify-bearer-to-cookie-login:
+        source: right
+        target: left
+      cookie-login-to-verify-cookie:
+        source: right
+        target: left
+      verify-cookie-to-set-session:
+        source: right
+        target: left
+      set-session-to-end:
+        source: right
+        target: left
+- id: inspect
+  name: Read typed health output
+  inputs:
+    minimum:
+      type: integer
+      default: 1
+  outputs:
+    ready:
+      type: boolean
+      value:
+        source: extraction
+        nodeId: extract-health
+        name: ready
+    attempts:
+      type: integer
+      value:
+        source: extraction
+        nodeId: extract-health
+        name: attempts
+    label:
+      type: string
+      value:
+        source: extraction
+        nodeId: extract-health
+        name: label
+    status:
+      type: integer
+      value:
+        source: response
+        nodeId: health
+        field: status
+    minimum:
+      type: integer
+      value:
+        source: input
+        name: minimum
+  nodes:
+  - id: start
+    type: start
+    name: Start
+  - id: wait-for-health
+    name: Wait inside health workflow
+    type: http
+    config:
+      method: POST
+      path: /long-poll
+      body:
+        kind: jsonTemplate
+        fields:
+          timeoutMs:
+            source: environment
+            name: waitMs
+  - id: health
+    type: http
+    name: Health
+    config:
+      method: GET
+      path: /routing-body
+      timeoutMs: 5000
+  - id: extract-health
+    name: Extract readiness fields
+    type: extract
+    config:
+      sourceNodeId: health
+      outputs:
+        ready:
+          expression: response.body.value.status
+          type: boolean
+        attempts:
+          expression: response.body.value.attempts
+          type: integer
+        label:
+          expression: response.body.value.label
+          type: string
+  - id: end
+    type: end
+    name: Finish
+  edges:
+  - id: start-to-health
+    from: start
+    to: wait-for-health
+  - id: wait-for-health-to-health
+    from: wait-for-health
+    to: health
+  - id: health-to-extract-health
+    from: health
+    to: extract-health
+  - id: extract-health-to-end
+    from: extract-health
+    to: end
+  layout:
+    positions:
+      start:
+        x: 80
+        y: 160
+      health:
+        x: 600
+        y: 160
+      extract-health:
+        x: 860
+        y: 160
+      end:
+        x: 1120
+        y: 160
+      wait-for-health:
+        x: 340
+        y: 160
+    connections:
+      start-to-health:
+        source: right
+        target: left
+      health-to-extract-health:
+        source: right
+        target: left
+      extract-health-to-end:
+        source: right
+        target: left
+      wait-for-health-to-health:
+        source: right
+        target: left
+- id: cleanup
+  name: Clean up session headers
+  nodes:
+  - id: start
+    type: start
+    name: Start
+  - id: reset
+    type: setSession
+    name: Remove temporary headers
+    config:
+      removeHeaders:
+      - x-showcase
+      - authorization
+  - id: cleanup-health
+    type: http
+    name: Cleanup Health
+    config:
+      method: GET
+      path: /health
+  - id: end
+    type: end
+    name: Finish
+  edges:
+  - id: start-to-reset
+    from: start
+    to: reset
+  - id: reset-to-cleanup-health
+    from: reset
+    to: cleanup-health
+  - id: cleanup-health-to-end
+    from: cleanup-health
+    to: end
+  layout:
+    positions:
+      start:
+        x: 80
+        y: 160
+      reset:
+        x: 340
+        y: 160
+      cleanup-health:
+        x: 600
+        y: 160
+      end:
+        x: 860
+        y: 160
+    connections:
+      start-to-reset:
+        source: right
+        target: left
+      reset-to-cleanup-health:
+        source: right
+        target: left
+      cleanup-health-to-end:
+        source: right
+        target: left

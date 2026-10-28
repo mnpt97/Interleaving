@@ -40,6 +40,7 @@ const graphSchema = z
         .object({
           key: z.string(),
           id: z.string(),
+          inlinePhases: z.array(z.enum(['initialize','iteration','cleanup'])).max(3).optional(),
           initialize: z.string().nullable(),
           iteration: z.string(),
           cleanup: z.string().nullable(),
@@ -57,11 +58,13 @@ const graphSchema = z
               .object({
                 key: z.string(),
                 id: z.string(),
+                name: z.string().optional(),
                 type: z.enum([
                   'start',
                   'http',
                   'extract',
                   'setSession',
+                  'authentication',
                   'call',
                   'end',
                   'exclusiveSplit',
@@ -72,7 +75,16 @@ const graphSchema = z
               .strict()
           ),
           edges: z.array(
-            z.object({ key: z.string(), id: z.string(), fromNodeKey: z.string(), toNodeKey: z.string() }).strict()
+            z
+              .object({
+                key: z.string(),
+                id: z.string(),
+                fromNodeKey: z.string(),
+                toNodeKey: z.string(),
+                sourceHandle: z.enum(['left', 'right', 'top', 'bottom']).optional(),
+                targetHandle: z.enum(['left', 'right', 'top', 'bottom']).optional(),
+              })
+              .strict()
           ),
         })
         .strict()

@@ -1,0 +1,357 @@
+{
+  "schemaVersion": 2,
+  "id": "editor-configured",
+  "name": "Configured editor workflow",
+  "environment": {
+    "variables": {
+      "resourceId": 1
+    }
+  },
+  "clientProfiles": [
+    {
+      "id": "client-1",
+      "baseUrl": "http://localhost:8080",
+      "timeoutMs": 7000,
+      "headers": {
+        "X-Client": "editor"
+      }
+    }
+  ],
+  "identities": [
+    {
+      "id": "unused",
+      "credentials": {
+        "password": {
+          "source": "env",
+          "name": "UNUSED_PASSWORD"
+        }
+      }
+    }
+  ],
+  "assertions": [],
+  "groups": [
+    {
+      "id": "group-1",
+      "clientProfileId": "client-1",
+      "identityAssignment": {
+        "mode": "shared",
+        "identityId": null
+      },
+      "executor": {
+        "kind": "once"
+      },
+      "lifecycle": {
+        "initialize": {
+          "workflowId": "workflow-2",
+          "inputs": {}
+        },
+        "iteration": {
+          "workflowId": "workflow-1",
+          "inputs": {
+            "resourceId": {
+              "source": "environment",
+              "name": "resourceId"
+            }
+          }
+        },
+        "cleanup": {
+          "workflowId": "workflow-4",
+          "inputs": {}
+        },
+        "cleanupTimeoutMs": 4000
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "id": "workflow-1",
+      "name": "Iteration",
+      "inputs": {
+        "resourceId": {
+          "type": "integer",
+          "default": 1
+        }
+      },
+      "outputs": {
+        "status": {
+          "type": "integer",
+          "value": {
+            "source": "callOutput",
+            "nodeId": "call-1",
+            "name": "result"
+          }
+        }
+      },
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "http-1",
+          "type": "http",
+          "name": "HTTP Request",
+          "config": {
+            "method": "POST",
+            "path": "/echo?resource=${resourceId}",
+            "headers": {
+              "X-Editor": "configured"
+            },
+            "timeoutMs": 2000,
+            "body": {
+              "kind": "jsonTemplate",
+              "fields": {
+                "resourceId": {
+                  "source": "input",
+                  "name": "resourceId"
+                },
+                "metadata": {
+                  "source": "object",
+                  "fields": {
+                    "active": {
+                      "source": "literal",
+                      "value": true
+                    }
+                  }
+                },
+                "values": {
+                  "source": "array",
+                  "items": [
+                    {
+                      "source": "literal",
+                      "value": 1
+                    },
+                    {
+                      "source": "literal",
+                      "value": "two"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "call-1",
+          "type": "call",
+          "config": {
+            "workflowId": "workflow-3",
+            "inputs": {
+              "status": {
+                "source": "response",
+                "nodeId": "http-1",
+                "field": "status"
+              }
+            }
+          }
+        },
+        {
+          "id": "end",
+          "type": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "from": "start",
+          "to": "http-1"
+        },
+        {
+          "id": "edge-2",
+          "from": "http-1",
+          "to": "call-1"
+        },
+        {
+          "id": "edge-3",
+          "from": "call-1",
+          "to": "end"
+        }
+      ],
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "end": {
+            "x": 860,
+            "y": 160
+          },
+          "http-1": {
+            "x": 340,
+            "y": 160
+          },
+          "call-1": {
+            "x": 600,
+            "y": 160
+          }
+        }
+      }
+    },
+    {
+      "id": "workflow-2",
+      "name": "Initialize",
+      "inputs": {},
+      "outputs": {},
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "authenticate-1",
+          "type": "authentication",
+          "name": "Authentication",
+          "config": {
+            "path": "/auth/login",
+            "method": "POST",
+            "username": {
+              "source": "env",
+              "name": "INTERL_ALICE_USERNAME"
+            },
+            "password": {
+              "source": "env",
+              "name": "INTERL_ALICE_PASSWORD"
+            },
+            "usernameKey": "username",
+            "passwordKey": "password",
+            "mode": "cookie"
+          }
+        },
+        {
+          "id": "end",
+          "type": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "from": "start",
+          "to": "authenticate-1"
+        },
+        {
+          "id": "edge-2",
+          "from": "authenticate-1",
+          "to": "end"
+        }
+      ],
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "end": {
+            "x": 600,
+            "y": 160
+          },
+          "authenticate-1": {
+            "x": 340,
+            "y": 160
+          }
+        }
+      }
+    },
+    {
+      "id": "workflow-3",
+      "name": "Forward status",
+      "inputs": {
+        "status": {
+          "type": "integer"
+        }
+      },
+      "outputs": {
+        "result": {
+          "type": "integer",
+          "value": {
+            "source": "input",
+            "name": "status"
+          }
+        }
+      },
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "end",
+          "type": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "from": "start",
+          "to": "end"
+        }
+      ],
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "end": {
+            "x": 340,
+            "y": 160
+          }
+        }
+      }
+    },
+    {
+      "id": "workflow-4",
+      "name": "Cleanup",
+      "inputs": {},
+      "outputs": {},
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "setSession-1",
+          "type": "setSession",
+          "config": {
+            "setHeaders": {},
+            "removeHeaders": [
+              "Authorization"
+            ]
+          }
+        },
+        {
+          "id": "end",
+          "type": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "from": "start",
+          "to": "setSession-1"
+        },
+        {
+          "id": "edge-2",
+          "from": "setSession-1",
+          "to": "end"
+        }
+      ],
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "end": {
+            "x": 600,
+            "y": 160
+          },
+          "setSession-1": {
+            "x": 340,
+            "y": 160
+          }
+        }
+      }
+    }
+  ]
+}

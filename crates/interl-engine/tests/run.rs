@@ -204,6 +204,7 @@ fn supported_auth_shapes_prepare_without_unnecessary_secret_reads() {
     }
     let mut session = base.clone();
     session.workflows[0].nodes.push(WorkflowNode::SetSession {
+        name: None,
         id: "update".into(),
         config: interl_core::SetSessionConfig {
             set_headers: Default::default(),
@@ -235,8 +236,11 @@ fn supported_auth_shapes_prepare_without_unnecessary_secret_reads() {
     ];
     let mut extract = base;
     extract.workflows[0].nodes.push(WorkflowNode::Extract {
+        name: None,
         id: "extract".into(),
         config: interl_core::ExtractConfig {
+            outputs: Default::default(),
+            output_type: interl_core::PortType::String,
             source_node_id: "health".into(),
             expression: "response.body.token".into(),
             output: "token".into(),

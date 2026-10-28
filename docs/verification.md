@@ -178,3 +178,45 @@ All maintained examples/fixtures and behavior regressions use V2. The desktop op
 - No dependencies, manifests, or lockfiles changed. No Git operations were performed. Native UI/bundle acceptance remains pending; this cleanup does not begin Phase 2 or enable exclusive routing.
 
 Fixture conversion exposed stale string substitutions and V1-specific expectations in old tests; those tests now assert they actually mutate their V2 fixture, exercise valid empty-workflow reachability, and fill the report budget through runtime events rather than a legacy payload-bearing snapshot. The V2 snapshot also now uses the existing fail-closed omission behavior if the redactor exhausts its budget.
+
+## Authentication node ownership and base URLs — 2026-10-19
+
+- Full Rust workspace tests pass, followed by the updated 17-test engine reusable-workflow suite after the final scoped-cookie/static-header corrections. The tests use permitted loopback HTTP servers; the initial sandbox bind denial was environmental.
+- All 118 frontend tests across 19 suites pass. TypeScript and production Vite build pass; existing bundle-size and mixed static/dynamic Tauri import advisories remain nonblocking.
+- Workspace/all-targets Clippy with warnings denied, rustfmt, frontend Prettier and Git whitespace checks pass. The Impeccable detector reports no findings for the changed UI targets.
+- Native Authentication roundtrips through shared JSON/YAML fixtures. Coverage verifies node-owned credential dependencies, Alice-to-Bob replacement, stale session/static authentication headers and cookies, failed status/token/cookie handling, no subsequent requests after failed login, anonymous cleanup after failure, scoped response cookies, prefix-preserving scenario defaults, and per-node target overrides. Live events match retained reports and exclude credential/token/cookie values.
+- Editor tests cover scenario target inheritance/overrides, invalid local URL fragments, read-only View controls, independent authentication configuration, undo/redo, and conversion of a recognized old composite without mutating workload credentials or another call.
+- Native visual acceptance remains pending. No new native/Chrome access was attempted. No dependencies were added for this correction, and no Git staging or commits were performed.
+
+## Scenario schema simplification — 2026-10-22
+
+- All 242 Rust tests/doctests and 193 frontend tests pass. Workspace Clippy with warnings denied, rustfmt, frontend formatting, production build, generated schema/type drift checks, and Git whitespace checks pass.
+- Coverage includes inferred gateway pairing, bounded FEEL conditions over response bodies and typed inputs, typed extraction, conditional authentication fields, omitted defaults, and shared node naming. Response-body routing preserves report redaction and extraction size limits.
+- Repository JSON/YAML examples use profile-owned base URLs and inferred gateway pairing. The generated JSON Schema and TypeScript file types share the Rust model as their source.
+- Native visual acceptance and packaged application testing remain pending.
+
+## Living feature showcase — 2026-10-22
+
+- Both showcase formats pass real CLI validation. The frontend contract suite passes all four tests, including generated-schema/editor acceptance of the new JSON example.
+- The showcase engine regression passes all four execution cases: JSON/YAML with the ready route and JSON/YAML with the default route. Each completes nine HTTP 200 responses, performs cleanup, preserves live/report event parity, and passes the existing secret-redaction assertions.
+- The example guide records feature coverage, run commands, and UI exercises. Project contributor instructions require extending the pair and coverage guidance when supported features change. These automated checks do not claim native visual acceptance.
+
+## Named extraction outputs — 2026-10-22
+
+- All 249 tests/doctests in the full Rust workspace run pass. Final focused runs cover five core extraction regressions (including two additional lifetime/diagnostic cases) and the updated showcase's four format/route execution cases. All 195 frontend tests across 32 suites pass.
+- Coverage verifies typed output publication, all-or-nothing failures, stale-value removal, aggregate budgets, latest-consumer retention, named-field diagnostics, staged multi-row editing/discard, reference protection, and existing single-output files. The showcase now executes one Extract node for its three health fields.
+- Workspace/all-targets/all-features Clippy with warnings denied, Rust/frontend formatting, generated schema/type drift checks, TypeScript/production build, and whitespace checks pass. Call workflow nodes use the workflow-diagram icon. Native visual acceptance remains pending.
+
+## M3.5 Phase 6 and styled selection — 2026-10-23
+
+- All **251 Rust tests/doctests** pass, including JSON/YAML showcase execution, live/report parity, redaction, and captured node-name/connection-side metadata. Workspace/all-targets/all-features Clippy with warnings denied, rustfmt, and schema drift checks pass.
+- All **211 frontend tests across 34 suites** pass with `npm --prefix apps/desktop test -- --maxWorkers=2`. The initial unrestricted run encountered worker-startup timeouts during concurrent Rust compilation; the bounded-worker rerun passes without unhandled errors. After the final terminal-task/default-inspection refinements, all **30 focused projection/canvas/log/store tests** pass again.
+- Application/configuration TypeScript and the final production Vite build pass. Frontend formatting and Git whitespace checks pass. The existing mixed static/dynamic Tauri window import advisory remains nonfatal.
+- Coverage includes full-context/repeated invocation identity, identical local IDs, lifecycle/call navigation, explicit traversal and skipped branches, failure/cancellation/unknown history, final-report reconciliation, late/wrong-run callbacks, immutable draft/capture separation, keyboard accordion/focus retention, reduced-motion static progress, scenario switching guards, and System/Light/Dark selection/persistence. The canvas has no repeated workflow/status banner.
+- Native interaction, manual desktop/CLI comparison, and a newly packaged bundle remain Phase 7 acceptance work. Previously denied native access was not retried. Report/live protocol stays v3 with optional safe display metadata; no scenario execution or resource limits were expanded.
+
+## Configurable long-poll fixture — 2026-10-23
+
+- The manual loopback server and automated fixture share `POST /long-poll`, accepting a required integer `timeoutMs` from 0 to 60000. Waiting is asynchronous; request size is capped at 1 KiB and invalid payloads return static errors.
+- Both showcase formats now contain three waits driven by `environment.variables.waitMs` (default 2000), including one inside the health subworkflow. Normal/default routes each complete twelve HTTP responses. Automated runs override the wait to 20 ms and verify all three request/response intervals actually wait.
+- All four endpoint tests, eight existing authentication fixture tests, the four-case showcase regression, five core extraction regressions, and four frontend schema-contract tests pass. Targeted core/HTTP/engine Clippy with warnings denied, Rust formatting, example formatting, and whitespace checks pass.

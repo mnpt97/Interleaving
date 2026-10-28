@@ -2,9 +2,6 @@
   "schemaVersion": 2,
   "id": "hello-api",
   "name": "Hello API",
-  "environment": {
-    "variables": {}
-  },
   "clientProfiles": [
     {
       "id": "api",
@@ -15,27 +12,17 @@
       }
     }
   ],
-  "identities": [],
   "groups": [
     {
       "id": "visitors",
       "clientProfileId": "api",
-      "identityAssignment": {
-        "mode": "shared",
-        "identityId": null
-      },
-      "executor": {
-        "kind": "once"
-      },
       "lifecycle": {
         "iteration": {
-          "workflowId": "main",
-          "inputs": {}
+          "workflowId": "main"
         }
       }
     }
   ],
-  "assertions": [],
   "workflows": [
     {
       "nodes": [
@@ -70,8 +57,6 @@
       ],
       "id": "main",
       "name": "Hello API",
-      "inputs": {},
-      "outputs": {},
       "layout": {
         "positions": {
           "start": {

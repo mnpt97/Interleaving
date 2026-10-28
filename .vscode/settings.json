@@ -1,8 +1,27 @@
 {
   "rust-analyzer.cargo.allTargets": true,
   "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.hover.documentation.enable": true,
   "editor.formatOnSave": true,
+  "editor.hover.enabled": "on",
   "[rust]": {
     "editor.defaultFormatter": "rust-lang.rust-analyzer"
-  }
+  },
+  "yaml.schemas": {
+    "./schemas/scenario.schema.json": [
+      "/scenarios/examples/*.yaml",
+      "/scenarios/examples/*.yml",
+      "**/*.interl.yaml",
+      "**/*.interl.yml"
+    ]
+  },
+  "json.schemas": [
+    {
+      "fileMatch": [
+        "/scenarios/examples/*.json",
+        "*.interl.json"
+      ],
+      "url": "./schemas/scenario.schema.json"
+    }
+  ]
 }

@@ -1,3 +1,4 @@
+import { extractionOutputs } from './extraction';
 import type { z } from 'zod';
 import type { ScenarioDocument, WorkflowNode, templateValueSchema } from '../../lib/scenario-types';
 
@@ -42,7 +43,6 @@ export function AuthDetails({ node, document }: { node: WorkflowNode; document: 
                 </li>
               ))}
           </ul>
-          <p className="muted">References resolve at run time. Literal values are hidden.</p>
         </section>
       )}
       {node.type === 'extract' && (
@@ -55,23 +55,17 @@ export function AuthDetails({ node, document }: { node: WorkflowNode; document: 
                 <code>{node.config.sourceNodeId}</code>
               </dd>
             </div>
-            <div>
-              <dt>FEEL</dt>
-              <dd>
-                <code>{node.config.expression}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Output</dt>
-              <dd>
-                <code>{node.config.output}</code>
-              </dd>
-            </div>
+            {Object.entries(extractionOutputs(node.config)).map(([name, output]) => (
+              <div key={name}>
+                <dt>
+                  {name} · {output.type}
+                </dt>
+                <dd>
+                  <code>{output.expression}</code>
+                </dd>
+              </div>
+            ))}
           </dl>
-          <p className="muted">
-            Reads the response without changing session state. The extracted value stays in Rust and is hidden from the
-            trace.
-          </p>
         </section>
       )}
       {node.type === 'setSession' && (
@@ -110,7 +104,6 @@ export function AuthDetails({ node, document }: { node: WorkflowNode; document: 
               </div>
             ))}
           </dl>
-          <p className="muted">Changes only this user's session. Header values are hidden.</p>
         </section>
       )}
       {groups.length > 0 && (
@@ -139,7 +132,6 @@ export function AuthDetails({ node, document }: { node: WorkflowNode; document: 
               </div>
             );
           })}
-          <p className="muted">Environment values resolve only when starting a run in Rust.</p>
         </section>
       )}
     </>

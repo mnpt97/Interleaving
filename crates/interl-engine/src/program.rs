@@ -1,20 +1,24 @@
-//! One interpreter for V2 reusable workflows and single-VU lifecycles.
+//! One interpreter for reusable workflows and single-VU lifecycles.
 mod interpreter;
 mod values;
 use crate::{extract::ExtractionState, security::RunSecurity, *};
-use interl_core::{v2::*, ScenarioDocument};
+use interl_core::*;
 use interl_http::{HttpSession, ResolvedBody};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
+/// Validated, bounded scenario and isolated session ready for one execution.
+/// Credentials are resolved once during preparation and never serialized.
 pub struct PreparedRun {
-    program: Program,
+    program: Arc<Program>,
     session: HttpSession,
     security: RunSecurity,
     options: RunOptions,
     snapshot: Value,
     graph: Value,
 }
+/// One invocation owns its local values; callers remain suspended on the stack.
+/// Values are released after their compiled last use rather than kept until run end.
 struct Frame {
     flow: usize,
     pc: usize,
@@ -25,8 +29,9 @@ struct Frame {
     extraction: ExtractionState,
     pending: bool,
 }
+/// Mutable state belongs to one task. Only the immutable compiled program is shared.
 struct Runtime {
-    program: Program,
+    program: Arc<Program>,
     session: HttpSession,
     security: RunSecurity,
     options: RunOptions,
@@ -49,6 +54,17 @@ fn check(cancel: &CancellationToken) -> Result<(), RunFailure> {
         Err(failure("cancelled", "Run cancelled"))
     } else {
         Ok(())
+    }
+}
+/// Prefer a scenario URL; otherwise use its selected client profile.
+fn scenario_base_url(document: &ScenarioDocument) -> Option<&str> {
+    {
+        let group = document.groups.first()?;
+        document
+            .client_profiles
+            .iter()
+            .find(|profile| profile.id == group.client_profile_id)
+            .map(|profile| profile.base_url.as_str())
     }
 }
 fn config(http: &ProgramHttp, body: Option<interl_core::RequestBody>) -> interl_core::HttpConfig {
@@ -75,12 +91,23 @@ fn static_config(http: &ProgramHttp) -> interl_core::HttpConfig {
     )
 }
 impl PreparedRun {
+    /// Compiles and prepares a run using process-environment credentials.
+    ///
+    /// # Errors
+    /// Returns diagnostics for invalid scenarios, limits, URLs, or credentials.
     pub fn new(
         document: &ScenarioDocument,
         options: RunOptions,
     ) -> Result<Self, Vec<interl_core::Diagnostic>> {
         Self::new_with_secret_provider(document, options, &EnvironmentSecretProvider)
     }
+    /// Prepares a run with a trusted credential provider borrowed only for this call.
+    ///
+    /// `dyn SecretProvider` allows adapters and tests to supply different providers
+    /// without making the runner generic or retaining the provider during execution.
+    ///
+    /// # Errors
+    /// Returns diagnostics before execution if compilation or admission fails.
     pub fn new_with_secret_provider(
         document: &ScenarioDocument,
         options: RunOptions,
@@ -109,7 +136,7 @@ impl PreparedRun {
             .client_profiles
             .iter()
             .find(|p| p.id == group.client_profile_id)
-            .expect("validated profile");
+            .ok_or_else(|| invalid("Selected client profile is unavailable"))?;
         let session = HttpSession::new(
             profile,
             options.max_response_bytes,
@@ -120,7 +147,33 @@ impl PreparedRun {
             for n in &program.workflows()[*i].definition().nodes {
                 if let ProgramNode::Http { config, .. } = n {
                     session
-                        .prepare(&static_config(config), &doc.environment.variables)
+                        .prepare_target(
+                            &static_config(config),
+                            &doc.environment.variables,
+                            None,
+                            config.base_url.as_deref().or(scenario_base_url(doc)),
+                        )
+                        .map_err(|e| invalid(&e.message))?;
+                }
+            }
+        }
+        for i in program.reachable() {
+            for node in &program.workflows()[*i].definition().nodes {
+                if let ProgramNode::Authentication { config, .. } = node {
+                    let cfg = interl_core::HttpConfig {
+                        method: config.method,
+                        path: config.path.clone(),
+                        headers: BTreeMap::new(),
+                        timeout_ms: None,
+                        body: None,
+                    };
+                    session
+                        .prepare_target(
+                            &cfg,
+                            &doc.environment.variables,
+                            None,
+                            config.base_url.as_deref().or(scenario_base_url(doc)),
+                        )
                         .map_err(|e| invalid(&e.message))?;
                 }
             }
@@ -132,16 +185,22 @@ impl PreparedRun {
             for n in &program.workflows()[*i].definition().nodes {
                 if let ProgramNode::Http { config, .. } = n {
                     let request = session
-                        .prepare(&static_config(config), &doc.environment.variables)
+                        .prepare_target(
+                            &static_config(config),
+                            &doc.environment.variables,
+                            None,
+                            config.base_url.as_deref().or(scenario_base_url(doc)),
+                        )
                         .map_err(|e| invalid(&e.message))?;
                     security.learn_url(request.url());
                 }
             }
         }
         let snapshot = security.program_snapshot(&program);
-        let graph = graph(&program, &security);
-        if serde_json::to_vec(&snapshot).expect("snapshot").len()
-            + 2 * serde_json::to_vec(&graph).expect("graph").len()
+        let graph =
+            graph(&program, &security).map_err(|_| invalid("Compiled graph is unavailable"))?;
+        if crate::budget::value_bytes(&snapshot)
+            + 2 * crate::budget::value_bytes(&graph)
             + 65536
             + 4096
             > options.max_report_bytes
@@ -151,7 +210,7 @@ impl PreparedRun {
             ));
         }
         Ok(Self {
-            program,
+            program: Arc::new(program),
             session,
             security,
             options,
@@ -159,9 +218,21 @@ impl PreparedRun {
             graph,
         })
     }
+    /// Consumes preparation and spawns execution using a shared cancellation token.
+    ///
+    /// Drain the returned live receiver concurrently with the task so backpressure
+    /// can make progress.
+    ///
+    /// # Panics
+    /// Panics when called outside an active Tokio runtime.
     pub fn start(self, cancel: CancellationToken) -> RunHandle {
         self.start_control(RunControl::from_token(cancel))
     }
+    /// Spawns execution with explicit adapter shutdown and user cancellation control.
+    /// This prepared run can only be started once.
+    ///
+    /// # Panics
+    /// Panics when called outside an active Tokio runtime.
     pub fn start_control(self, control: RunControl) -> RunHandle {
         let run_id = uuid::Uuid::new_v4().to_string();
         let (sender, events) = mpsc::channel(self.options.event_capacity);
@@ -173,7 +244,7 @@ impl PreparedRun {
             self.snapshot,
             self.options.max_report_bytes,
         );
-        trace.bytes += serde_json::to_vec(&self.graph).expect("graph").len();
+        trace.bytes += crate::budget::value_bytes(&self.graph);
         trace.control = control.clone();
         let runtime = Runtime {
             program: self.program,
@@ -198,29 +269,93 @@ impl PreparedRun {
         }
     }
 }
-fn graph(program: &Program, security: &RunSecurity) -> Value {
-    let label = |s: &str| security.text(s).chars().take(256).collect::<String>();
-    let flows=program.workflows().iter().enumerate().map(|(i,w)|{
-        let d=w.definition();let key=|id:&str|format!("wf:{i}/node:{}",d.nodes.iter().position(|n|n.id()==id).expect("validated edge"));
-        json!({"key":format!("wf:{i}"),"id":label(&d.id),"name":label(&d.name),"nodes":d.nodes.iter().enumerate().map(|(j,n)|json!({"key":format!("wf:{i}/node:{j}"),"id":label(n.id()),"type":n.kind(),"position":d.layout.as_ref().and_then(|l|l.positions.get(n.id())).copied().unwrap_or(interl_core::Position{x:80.0+j as f64*260.0,y:160.0})})).collect::<Vec<_>>(),"edges":d.edges.iter().enumerate().map(|(j,e)|json!({"key":format!("wf:{i}/edge:{j}"),"id":label(&e.id),"fromNodeKey":key(&e.from),"toNodeKey":key(&e.to)})).collect::<Vec<_>>()})
-    }).collect::<Vec<_>>();
-    let l = &program.document().groups[0].lifecycle;
-    let binding = |b: Option<&WorkflowBinding>| {
-        b.map(|b| {
-            format!(
-                "wf:{}",
-                program.workflow_index(&b.workflow_id).expect("binding")
-            )
-        })
+/// Project stable positional keys and redacted labels; never include request data.
+fn graph(program: &Program, security: &RunSecurity) -> Result<Value, RunFailure> {
+    let label = |text: &str| security.text(text).chars().take(256).collect::<String>();
+    let mut flows = Vec::new();
+    for (index, workflow) in program.workflows().iter().enumerate() {
+        let definition = workflow.definition();
+        let node_keys: BTreeMap<_, _> = definition
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(node_index, node)| (node.id(), format!("wf:{index}/node:{node_index}")))
+            .collect();
+        let nodes: Vec<_> = definition
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(node_index, node)| {
+                let position = definition
+                    .layout
+                    .as_ref()
+                    .and_then(|layout| layout.positions.get(node.id()))
+                    .copied()
+                    .unwrap_or(Position {
+                        x: 80.0 + node_index as f64 * 260.0,
+                        y: 160.0,
+                    });
+                json!({"key": node_keys[node.id()], "id": label(node.id()),
+                "name": label(node.name().unwrap_or(node.id())), "type": node.kind(), "position": position})
+            })
+            .collect();
+        let edges = definition
+            .edges
+            .iter()
+            .enumerate()
+            .map(|(edge_index, edge)| {
+                let key = |id: &str| {
+                    node_keys
+                        .get(id)
+                        .ok_or_else(|| failure("invalidProgram", "Graph endpoint is unavailable."))
+                };
+                let attachment = definition.layout.as_ref().and_then(|layout| layout.connections.get(&edge.id));
+                Ok(
+                    json!({"key": format!("wf:{index}/edge:{edge_index}"), "id": label(&edge.id),
+                "fromNodeKey": key(&edge.from)?, "toNodeKey": key(&edge.to)?,
+                "sourceHandle": attachment.map(|value| value.source).unwrap_or(interl_core::ConnectionSide::Right),
+                "targetHandle": attachment.map(|value| value.target).unwrap_or(interl_core::ConnectionSide::Left)}),
+                )
+            })
+            .collect::<Result<Vec<_>, RunFailure>>()?;
+        flows.push(
+            json!({"key": format!("wf:{index}"), "id": label(&definition.id),
+            "name": label(&definition.name), "nodes": nodes, "edges": edges}),
+        );
+    }
+    let group = &program.document().groups[0];
+    let binding = |binding: Option<&WorkflowBinding>| -> Result<Option<String>, RunFailure> {
+        binding
+            .map(|binding| {
+                program
+                    .workflow_index(&binding.workflow_id)
+                    .map(|index| format!("wf:{index}"))
+                    .ok_or_else(|| failure("invalidProgram", "Graph workflow is unavailable."))
+            })
+            .transpose()
     };
-    json!({"groups":[{"key":"group:0","id":label(&program.document().groups[0].id),"initialize":binding(l.initialize.as_ref()),"iteration":binding(Some(&l.iteration)),"cleanup":binding(l.cleanup.as_ref())}],"workflows":flows})
+    // A definition can be edited inline only when exactly one lifecycle phase owns
+    // it and no workflow calls it. Keys remain independent of sanitized labels.
+    let inline_phases: Vec<_> = [
+        ("initialize", group.lifecycle.initialize.as_ref()),
+        ("iteration", Some(&group.lifecycle.iteration)),
+        ("cleanup", group.lifecycle.cleanup.as_ref()),
+    ].into_iter().filter_map(|(phase, binding)| {
+        let binding = binding?;
+        let uses = program.document().groups.iter().flat_map(|group| [
+            group.lifecycle.initialize.as_ref(), Some(&group.lifecycle.iteration), group.lifecycle.cleanup.as_ref()
+        ]).flatten().filter(|other| other.workflow_id == binding.workflow_id).count();
+        let called = program.document().workflows.iter().any(|workflow| workflow.nodes.iter().any(|node| matches!(node, interl_core::ProgramNode::Call { config, .. } if config.workflow_id == binding.workflow_id)));
+        (uses == 1 && !called).then_some(phase)
+    }).collect();
+    Ok(json!({"groups": [{"key": "group:0", "id": label(&group.id),
+        "initialize": binding(group.lifecycle.initialize.as_ref())?,
+        "iteration": binding(Some(&group.lifecycle.iteration))?,
+        "cleanup": binding(group.lifecycle.cleanup.as_ref())?, "inlinePhases": inline_phases}], "workflows": flows}))
 }
 
 fn scalar_bytes<K: Ord>(values: &BTreeMap<K, Value>) -> usize {
-    values
-        .values()
-        .map(|v| serde_json::to_vec(v).expect("scalar").len())
-        .sum()
+    values.values().map(crate::budget::value_bytes).sum()
 }
 
 #[cfg(test)]

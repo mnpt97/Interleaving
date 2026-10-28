@@ -18,9 +18,13 @@ plans/                       Implementation plans and accepted decisions
 
 See [DESIGN.md](DESIGN.md), [the M1 plan](plans/milestone-1.md), and [the supported scenario contract](docs/scenario-v2.md).
 
+For a complete runnable example, start with the [living feature showcase](scenarios/examples/README.md#living-feature-showcase). Extend its JSON/YAML pair whenever a supported feature is added.
+
 M3 implementation and automated verification are available; native acceptance remains pending. The shared Rust engine now runs the `auth-login.interl.json` and `.yaml` workflows using environment credential references. New reports use version 3 after M3.5 Phase 1; validation still needs no credentials or network access. Authenticated CLI and Rust desktop-adapter parity are tested; desktop auth-node loading/rendering and reference-only inspection are implemented in Phase 9; native interaction checks remain pending. See [M3 progress and schema additions](docs/milestone-3.md).
 
-The active milestone is [M3.5 — Scenario editor and visual execution](plans/milestone-3.5.md): Camunda-style node authoring, directional connections, configuration inspectors, validation, and separate Edit/Run modes with execution tokens. The accepted split places exclusive conditional branching in M3.5 and parallel branching/barriers in M5; the detailed Phase 0 contract is accepted in ADR 0002. Phase 1 implements the shared schema v2/workflow/lifecycle foundation and report/live protocol v3. Only scenario v2 is supported; V1 compatibility and migration were removed before Phase 2. The current desktop displays the iteration workflow and preserves the complete document on save. See [current capabilities and boundaries](docs/milestone-3.5.md); editor authoring remains in subsequent phases.
+The active milestone is [M3.5 — Scenario editor and visual execution](plans/milestone-3.5.md). Phases 1–6 provide node authoring, reusable workflows/lifecycle, typed configuration, exclusive routing, and captured Run visualization with grouped execution logs. Scenario schema v2 and report/live protocol v3 are supported; V1 is unsupported. Phase 6b's unified lifecycle canvas and Phase 7 end-to-end/native acceptance remain pending. M4 adds load scheduling; M5 retains parallel branching and barriers. See [current capabilities and verification](docs/milestone-3.5.md).
+
+A [Go + Wails migration plan](plans/go-wails-migration.md) defines a parallel implementation with hexagonal architecture, shared React UI and compatibility gates. It is planned work; the existing Rust/Tauri app and CLI remain available.
 
 ## Setup
 
@@ -77,15 +81,39 @@ cargo run --locked -p interl-cli --bin interl -- run scenarios/examples/auth-coo
 
 Launch Tauri from that same terminal to inherit the variables, then open either example format. No automatic `.env` loading or secret-entry UI exists. See [the examples](scenarios/examples/README.md), [runtime contracts](docs/milestone-3.md), and the [M3 acceptance checklist](docs/m3-acceptance.md), including launching a packaged app with its environment.
 
-## Desktop
+## Desktop — local development
+
+To restart with the local example credentials, stop the running Tauri development
+process with Ctrl-C and close the app. From the repository root:
 
 ```bash
-npm --prefix apps/desktop run tauri -- dev
+(set -a && source ./example.env && npm --prefix apps/desktop run tauri -- dev)
 ```
 
-The desktop validates the bundled example on opening. Use **Open scenario** for YAML/JSON, the **Validate** button in the **Validation** tab below the canvas to check the current document, and the inspector or canvas to change positions. Execution configuration is read-only. Switch to the **Run** tab to execute the validated snapshot, **Cancel** to stop it, select an event row to inspect redacted details, and use **Export report** to save the last completed report. Switching tabs, editing positions, or opening another scenario does not change an active run. **Save as JSON** uses a native save dialog and the core serializer; YAML is never overwritten by JSON export. The original source format/path remains associated with the open input.
+The committed `example.env` contains only the local server's fake credentials,
+including the references used by the showcase and new Authentication nodes.
+Loading the variables after the app has started does not update its environment;
+restart it from the configured terminal. Keep the local test server running in a
+separate terminal:
 
-To test validation feedback, open `scenarios/examples/invalid-json.interl.json` in the desktop app. Its trailing comma is intentional: validation fails, the Validation tab opens automatically, and a yellow warning icon appears before its label. While loading or validating a scenario, a rotating loader replaces the result icon. Valid files show a check icon in the label's color and preserve the selected tab.
+```bash
+cargo run --locked -p interl-http --example test_server
+```
+
+The desktop opens in **View/Run**, with a scenario dropdown and a read-only canvas. Use **Open scenario** for YAML/JSON. Switch to **Edit** to rename the scenario, move nodes, or use **Add node** (+) → **HTTP Request**. Configure the request method/path in its inspector. Save, Undo, and Redo are compact Edit-only icons; Save enables for unsaved persisted changes. Existing JSON files save in place; new/YAML scenarios choose a JSON destination on first save. YAML is never overwritten by JSON, and original-source metadata remains separate from the save destination.
+
+**Add node → Authentication** adds a login node before existing requests; choose another connection in the picker when needed. Each node owns its username/password environment references (initially `INTERL_USERNAME` and `INTERL_PASSWORD`). Configure the login request and choose **Bearer token** or **Session cookie**, then apply changes. Following nodes automatically use this session until another Authentication replaces it. Failed login stops the run; credentials, tokens, and cookies remain in Rust. Set the **Scenario base URL** once (including a prefix such as `/api/v1`); HTTP Request and Authentication inherit it and can specify a per-node override. See the [schema contract](docs/scenario-v2.md#authentication-nodes-and-base-urls--2026-10-19).
+
+Use **Validate** in the bottom **Validation** tab, then the **Run** tab to execute the validated snapshot. Dirty transitions offer Save/Discard/Cancel. Run preparation still validates the exact input in Rust. **Cancel**, safe event inspection, and **Export report** remain available. The active run uses an immutable capture while its originating draft can be edited independently; scenario switching stays disabled until the run finishes.
+
+Run displays the captured graph with observed node/edge progress. Select lifecycle
+phases and workflow invocations in the sidebar, or open a call from its node.
+Each node execution has one expandable log row with status, duration, HTTP status,
+and safe event details. Use **View scenario** / **View run** in the Run sheet to
+switch between the current draft and retained results. The scenario and theme
+dropdowns use styled shadcn Select controls with keyboard navigation.
+
+To test validation feedback, open `scenarios/examples/invalid-json.interl.json` in the desktop app. Its trailing comma is intentional: opening reports diagnostics and preserves the current scenario so it is not replaced with an unusable document. While loading or validating a scenario, a rotating loader replaces the result icon. Valid files show a check icon in the label's color and preserve the selected tab.
 
 For a browser-only visual preview:
 
@@ -93,7 +121,7 @@ For a browser-only visual preview:
 npm --prefix apps/desktop run dev
 ```
 
-The preview renders the bundled example and supports layout changes. Native file opening, saving, and authoritative validation, HTTP execution, and report export require Tauri; the preview labels this limitation and disables those actions.
+The preview supports bundled scenario selection and Edit-only naming, layout, and HTTP insertion. Native file opening, saving, and authoritative validation, HTTP execution, and report export require Tauri; the preview labels this limitation and disables those actions.
 
 ## Verification
 
@@ -125,3 +153,11 @@ Desktop smoke checks:
 9. Export a report and compare event types, node IDs, status, and response payloads with CLI output. Run IDs and elapsed timing naturally differ.
 
 Builds and tests generate ignored artifacts. Root `Cargo.lock` and desktop `package-lock.json` belong in version control. All Rust profiles are defined in the root manifest.
+
+
+The [scenario contract](docs/scenario-v2.md) is exported from Rust as
+[JSON Schema](schemas/scenario.schema.json) and generated TypeScript file types.
+Run `npm --prefix apps/desktop run schema:generate` after changing persisted Rust
+models; `npm --prefix apps/desktop run schema:check` checks both artifacts for drift.
+The `body-routing.interl.json` / `.yaml` examples use the local test server's
+`/routing-body` endpoint to branch on `response.body.value.status = true`.

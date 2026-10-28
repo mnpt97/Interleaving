@@ -1,4 +1,4 @@
-use interl_core::{v2::*, *};
+use interl_core::*;
 use serde_json::{json, Value};
 const SOURCE: &str = include_str!("../../../scenarios/examples/reusable-auth.interl.json");
 fn value() -> Value {
@@ -67,7 +67,7 @@ fn strict_shapes_duplicate_keys_future_capabilities() {
         } else if path.ends_with("typo") {
             v["workflows"][0]["typo"] = bad;
         } else {
-            *v.pointer_mut(path).unwrap() = bad;
+            v["groups"][0]["executor"] = bad;
         }
         assert!(parse_document(&v.to_string(), ScenarioFormat::Json).is_err());
     }
@@ -82,8 +82,9 @@ fn strict_shapes_duplicate_keys_future_capabilities() {
         "duplicateKey"
     );
     let mut v = value();
-    v["workflows"][0]["nodes"][0] = json!({"id":"start","type":"exclusiveSplit","config":{"sourceNodeId":"login","mergeNodeId":"end"}});
-    assert!(codes(v).contains(&"unsupportedFeature".into()));
+    v["workflows"][0]["nodes"][0] =
+        json!({"id":"start","type":"exclusiveSplit","config":{"sourceNodeId":"login"}});
+    assert!(codes(v).contains(&"startCount".into()));
 }
 #[test]
 fn missing_workflow_port_type_and_forward_reference_fail() {
@@ -199,4 +200,29 @@ fn v2_display_and_identifier_limits_apply_consistently() {
     let mut v = value();
     v["clientProfiles"][0]["id"] = json!("p".repeat(129));
     assert!(codes(v).contains(&"invalidId".into()));
+}
+
+#[test]
+fn http_display_names_roundtrip_without_changing_ids_or_connections() {
+    let mut value: Value =
+        serde_json::from_str(include_str!("../../../scenarios/examples/hello-api.json")).unwrap();
+    let original = file(value.clone());
+    value["workflows"][0]["nodes"][1]["name"] = json!("Get inventory");
+    let named = file(value.clone());
+    assert_eq!(
+        named.workflows[0].nodes[1].id(),
+        original.workflows[0].nodes[1].id()
+    );
+    assert_eq!(named.workflows[0].edges, original.workflows[0].edges);
+    assert!(compile_document(&named).is_ok());
+    let saved = serialize_document(&named).unwrap();
+    assert!(saved.contains("Get inventory"));
+    assert_eq!(parse_document(&saved, ScenarioFormat::Json).unwrap(), named);
+    let yaml = include_str!("../../../scenarios/examples/hello-api.interl.yaml").replace(
+        "    type: http\n",
+        "    type: http\n    name: Get inventory\n",
+    );
+    assert_eq!(parse_document(&yaml, ScenarioFormat::Yaml).unwrap(), named);
+    value["workflows"][0]["nodes"][1]["name"] = json!("x".repeat(257));
+    assert!(codes(value).contains(&"resourceLimit".to_string()));
 }

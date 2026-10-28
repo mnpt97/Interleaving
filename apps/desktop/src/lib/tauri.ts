@@ -66,14 +66,18 @@ export async function openScenarioFile() {
   const result = openSchema.parse(await invoke('open_scenario', { path }));
   return openSchema.parse(result);
 }
-export async function saveScenarioJson(source: string, id: string) {
-  const path = await save({
-    defaultPath: `${id}.interl.json`,
-    filters: [{ name: 'JSON scenario', extensions: ['json'] }],
-  });
+export async function readScenarioFile(path: string) {
+  return openSchema.parse(await invoke('open_scenario', { path }));
+}
+export async function saveScenarioJson(source: string, id: string, destination?: string | null) {
+  const path =
+    destination ??
+    (await save({
+      defaultPath: `${id}.interl.json`,
+      filters: [{ name: 'JSON scenario', extensions: ['json'] }],
+    }));
   if (!path) return false;
-  await invoke('save_scenario_json', { path, source });
-  return true;
+  return { path, validation: validationSchema.parse(await invoke('save_scenario_draft_json', { path, source })) };
 }
 export function errorMessage(
   error: unknown,

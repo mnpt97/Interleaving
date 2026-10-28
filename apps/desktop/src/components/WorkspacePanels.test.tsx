@@ -1,5 +1,5 @@
 import { emptyEventContext } from '../lib/run-types';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
@@ -10,6 +10,9 @@ import { useRunStore } from '../features/runs/store';
 vi.mock('../lib/tauri', async (original) => ({
   ...(await original<typeof import('../lib/tauri')>()),
   desktopAvailable: true,
+}));
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({ onCloseRequested: vi.fn().mockResolvedValue(() => {}) }),
 }));
 vi.mock('./ThemeControl', () => ({ ThemeControl: () => null }));
 vi.mock('../features/scenarios/ScenarioCanvas', () => ({ ScenarioCanvas: () => <div>Workflow canvas</div> }));
@@ -33,6 +36,58 @@ afterEach(() => {
 });
 
 describe('workspace panel tabs', () => {
+  it('separates read-only scenario selection from Edit-only icon controls', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    expect(screen.getByRole('combobox', { name: 'Scenario' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New scenario' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open scenario' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add node' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Scenario name' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save scenario' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Duplicate' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const name = screen.getByRole('textbox', { name: 'Scenario name' });
+    expect(screen.queryByRole('button', { name: 'New scenario' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open scenario' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Add node' })).toBeInTheDocument();
+    const save = screen.getByRole('button', { name: 'Save scenario' });
+    expect(save).toBeDisabled();
+    expect(save).toHaveTextContent('');
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+    await user.type(name, ' changed');
+    await user.tab();
+    expect(save).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'View/Run' }));
+    expect(screen.getByRole('dialog', { name: 'Save your changes?' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(screen.queryByRole('textbox', { name: 'Scenario name' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    expect(useScenarioStore.getState().dirty).toBe(false);
+    expect(screen.getByRole('button', { name: 'New scenario' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open scenario' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add node' })).not.toBeInTheDocument();
+  });
+
+  it('creates and names a draft, undoes edits, and keeps Run unavailable', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'New scenario' }));
+    const name = screen.getByRole('textbox', { name: 'Scenario name' });
+    await user.clear(name);
+    await user.type(name, 'Draft API');
+    await user.tab();
+    expect(useScenarioStore.getState().document?.name).toBe('Draft API');
+    expect(screen.getByText('· Unsaved changes')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(name).toHaveValue('Untitled scenario');
+    await user.click(screen.getByRole('tab', { name: 'Run' }));
+    expect(screen.getByRole('button', { name: 'Run' })).toBeDisabled();
+  });
+
   it('toggles the inspector and reopens it when selecting the same or another node', async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -118,7 +173,7 @@ describe('workspace panel tabs', () => {
     await user.click(within(validation).getByRole('button', { name: 'Validate' }));
     expect(useScenarioStore.getState().validate).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('tab', { name: 'Run' }));
-    expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+    expect(within(document.getElementById('workspace-results')!).getAllByRole('tabpanel')).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Validate' })).not.toBeInTheDocument();
     expect(within(screen.getByRole('tabpanel', { name: 'Run' })).getByRole('button', { name: 'Run' })).toBeEnabled();
   });
@@ -228,4 +283,19 @@ describe('workspace panel tabs', () => {
     expect(validation.querySelector('.validation-tab-loading')).not.toBeInTheDocument();
     expect(validation.querySelector('.validation-tab-check')).toBeInTheDocument();
   });
+});
+
+it('uses keyboard-accessible scenario options and disables switching during execution', () => {
+  const switchScenario = vi.fn().mockResolvedValue(undefined);
+  useScenarioStore.setState({
+    switchScenario,
+    entries: [...initialScenario.entries, { ...initialScenario.entries[0], key: 'another', name: 'Another scenario' }],
+  });
+  render(<App />);
+  const trigger = screen.getByRole('combobox', { name: 'Scenario' });
+  fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+  fireEvent.keyDown(screen.getByRole('option', { name: 'Another scenario' }), { key: 'Enter' });
+  expect(switchScenario).toHaveBeenCalledWith('another');
+  act(() => useRunStore.setState({ status: 'running' }));
+  expect(trigger).toBeDisabled();
 });

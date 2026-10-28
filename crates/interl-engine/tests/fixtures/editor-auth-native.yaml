@@ -1,0 +1,73 @@
+schemaVersion: 2
+id: editor-auth
+name: Untitled scenario
+environment:
+  variables: {}
+clientProfiles:
+- id: client-1
+  baseUrl: http://localhost:8080
+  timeoutMs: 5000
+  headers: {}
+identities: []
+assertions: []
+groups:
+- id: group-1
+  clientProfileId: client-1
+  identityAssignment:
+    mode: shared
+    identityId: null
+  executor:
+    kind: once
+  lifecycle:
+    initialize: null
+    iteration:
+      workflowId: workflow-1
+      inputs: {}
+    cleanup: null
+    cleanupTimeoutMs: 2000
+workflows:
+- id: workflow-1
+  name: Iteration
+  inputs: {}
+  outputs: {}
+  nodes:
+  - id: start
+    type: start
+  - id: authenticate-1
+    type: authentication
+    name: Authentication
+    config:
+      method: POST
+      path: /auth/login
+      mode: bearer
+      username:
+        source: env
+        name: INTERL_USERNAME
+      password:
+        source: env
+        name: INTERL_PASSWORD
+      usernameKey: username
+      passwordKey: password
+      tokenExpression: response.body.accessToken
+      headerName: Authorization
+      headerPrefix: 'Bearer '
+  - id: end
+    type: end
+  edges:
+  - id: edge-1
+    from: start
+    to: authenticate-1
+  - id: edge-2
+    from: authenticate-1
+    to: end
+  layout:
+    positions:
+      start:
+        x: 80
+        y: 160
+      end:
+        x: 600
+        y: 160
+      authenticate-1:
+        x: 340
+        y: 160

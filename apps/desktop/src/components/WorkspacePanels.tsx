@@ -27,7 +27,7 @@ export function WorkspacePanels() {
     if (status === 'invalid') setTab('validation');
   }, [status, fileRevision]);
   return (
-    <Tabs value={tab} onValueChange={setTab} className="workspace-panels">
+    <Tabs id="workspace-results" value={tab} onValueChange={setTab} className="workspace-panels">
       <TabsList aria-label="Scenario panels">
         <TabsTrigger value="validation" aria-describedby={statusId}>
           {validating ? (

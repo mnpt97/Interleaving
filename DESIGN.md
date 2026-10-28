@@ -2,6 +2,8 @@
 
 **Status:** Proposed implementation contract · **Version:** 0.1 · **Primary platform:** macOS desktop, portable Rust CLI
 
+**Parallel migration experiment (2026-10-28):** the [Go + Wails migration plan](plans/go-wails-migration.md) specifies a hexagonal Go core and replaceable CLI/desktop/external-service adapters alongside the existing Rust/Tauri stack. The technology choices below describe the current implementation; no default switch or Rust removal has been approved. Preserve scenario semantics and desktop/CLI engine parity within each implementation throughout the experiment.
+
 ## 1. Product definition
 
 **Interleaving** is a local-first, visual API concurrency and correctness testing tool. Its executable is **`interl`**. Users model independent authenticated HTTP clients, run them as isolated virtual users, coordinate their requests with barriers, and inspect event traces to uncover races such as double booking, lost updates, and broken idempotency.
@@ -115,6 +117,65 @@ Scenario: checkout test
 This illustrates the accepted target architecture, not current executable scheduling syntax. M3.5 Phase 1 supports only schema v2, reusable workflows/lifecycle bindings, and one once workload/VU/iteration. M4 adds multiple executing groups, fixed/ramping VUs, and identity-pool scheduling; M6 supplies mTLS transport. V1 is intentionally unsupported during pre-release development: reject it clearly without automatic migration. Inline login remains an explicit iteration sequence unless the author chooses an initialize workflow.
 
 A load schedule belongs to a workload group, not to an identity or reusable workflow. M4 initially supports fixed VUs and staged ramping VUs, with explicit duration/iteration/stop policies, graceful draining, and hard resource limits. A VU completes workflow iterations sequentially; the scheduler controls repetitions without requiring a cycle in the graph. Ramping VUs controls concurrency, not requests per second. Arrival-rate executors are a separate future capability with bounded VU allocation. Report allocated/initializing/ready/draining VUs separately so authentication time and failures do not falsely appear as achieved business load.
+
+### Execution containers (M4)
+
+M4 adds graphical **execution containers** around selected nodes or workflow calls.
+Two variants separate workload scheduling from repetition inside one user's journey:
+
+| Container | Execution ownership | Configuration example |
+| --- | --- | --- |
+| **Load** | A workload group schedules independent VUs; each VU repeats the enclosed journey sequentially | Ramp 0 → 50 VUs over 2 minutes, hold 50 for 5 minutes, then ramp down |
+| **Repeat** | The current VU repeats the enclosed steps using its existing identity and session | Repeat 10 times, for 2 minutes, or until a bounded condition becomes true |
+
+A Load container is the graphical representation of an existing workload group
+and its executor, not an independently scheduled node inside a reusable workflow.
+Wrapping a valid selection creates or binds the group's iteration workflow with
+explicit inputs/outputs. Container membership affects execution and must be
+persisted independently of canvas coordinates; moving a node across a drawn
+border alone must not silently change membership. Reusable definitions remain
+independent of their callers' load schedules.
+
+A Repeat container is a new structured loop within one VU. It does not create
+additional VUs or replace the workload executor. Count mode runs the configured
+number of repetitions; duration mode starts repetitions while time remains;
+until mode evaluates a read-only bounded condition after each successful
+repetition and stops when it becomes true. Until mode requires a maximum count
+or duration, and reaching that limit without satisfying the condition reports a
+distinct limit outcome. Conditions use explicitly scoped current-repetition
+outputs; unavailable values and evaluation errors must not silently continue.
+Pin loop input/output, iteration-local lifetime, pacing, and nesting limits before
+implementation. Reject arbitrary graph back-edges and nested Load schedulers;
+bound supported Repeat nesting and total execution/resource use.
+
+Per-VU lifecycle remains **initialize once → repeat journey → cleanup once**.
+Retain session state across repetitions by default. Authentication inside the
+repeated body deliberately models repeated logins; initialization outside it
+authenticates each newly started VU once. A Repeat container may be part of a Load
+journey without changing these ownership rules.
+
+Editor behavior:
+
+- Select a connected region or workflow calls, then **Wrap in Load** or **Wrap in Repeat**. Validate a single entry/exit and preserve references through explicit boundary mappings; reject invalid selections with actionable diagnostics.
+- Show a compact container summary such as `0 → 50 VUs · ramp 2m` or `Repeat · 10 times`. Configure load stages, counts, duration, and stop conditions in the inspector.
+- Support editing, unwrapping, undo/redo, save/reopen, and Rust validation without changing the selected nodes' meaning unexpectedly. Define schedule ownership when wrapping an existing workload selection; never silently multiply its VUs.
+- Run displays scheduled versus achieved VUs, completed iterations, container/repetition identity, and stop outcomes. Use aggregate load progress and a selected-VU view rather than one DOM token per VU.
+
+Duration expiry and ramp-down stop admission of new repetitions, allow active
+work to drain within a configured grace period, then cancel remaining work and
+perform bounded per-VU cleanup. User cancellation propagates to HTTP operations
+and waits. Specify completion, failure, deadline, and cancellation outcomes in the
+shared Rust contract and keep CLI/Tauri observations equivalent. Arrival-rate
+executors, parallel execution, and cross-user coordination are not enabled by
+these containers; arrival-rate scheduling remains later work and synchronization
+remains M5.
+
+M4 acceptance includes fixed/staged loads, count/duration/until repetition,
+conditional limits and missing outputs, nested-loop/resource bounds, independent
+VU sessions, graceful stopping, safe iteration-correlated reports, and graphical
+wrap/unwrap round trips. Extend the living feature showcase and its regression as
+each supported container capability lands; do not add non-executable placeholders
+to today's examples.
 
 ### Reusable workflows and authentication ownership
 
@@ -588,17 +649,28 @@ Editor changes are separate from the immutable snapshot captured at run start. D
 
 ### Scenario authoring and execution modes (M3.5)
 
+**Planned Phase 6b:** author the main scenario on one canvas with Initialize,
+Iteration, and Cleanup containers between scenario Start/End boundaries. Nodes
+and reusable workflow calls belong explicitly to a phase; canvas geometry does
+not determine membership. Initially project/compile containers through the
+existing lifecycle bindings and phase-owned workflows. Cleanup remains a bounded
+lifecycle-controller action after eligible failures/cancellation, not an ordinary
+success-edge dependency; preserve the primary failure and report cleanup errors
+separately. See the [Phase 6b design](plans/milestone-3.5.md#phase-6b--unified-lifecycle-canvas)
+for ownership, import, editor, Run, dataflow, and acceptance rules. This authoring
+correction belongs in M3.5; VU scheduling and repetition remain M4.
+
 Add a Camunda-style modeling workflow using the existing React Flow setup: a palette of typed nodes, contextual add/connect/delete actions, arrowheads showing connection direction, and configuration through the collapsible inspector. This is an interaction reference, not BPMN file-format compatibility or adoption of Camunda engine semantics.
 
 **Edit mode** creates/modifies scenarios, reusable workflows, lifecycle bindings, connections, client profiles, identity references, workload groups, and node inputs/outputs. The explorer distinguishes definitions from runtime users; workflow selectors and expandable subprocesses expose reusable authentication. M3.5 enables only one executing group/VU with one iteration; unsupported load executors are not presented as runnable. HTTP configuration includes method/path/headers/body/timeout and explicit response extraction/output references. Validation connects Rust field/node diagnostics to the inspector and canvas. Provide dirty-state handling, undo/redo, and save/load without serializing React Flow runtime objects or resolved secrets.
 
 **Run mode** displays the immutable captured scenario, workload/workflow bindings, and layout, with execution markers (visual “tokens”) driven by engine events. Show active/completed/failed/cancelled nodes and observed edge traversal; the canvas is read-only. Tokens represent workflow progress, never authentication values. Correlate progress with group/VU/iteration/workflow/invocation/node identity so repeated subprocesses do not collide. M3.5 shows one VU; M4 adds aggregate group counts and a selected-VU view rather than rendering every VU as a DOM token. Preserve invocation paths in traces and safe input/output inspection. Preserve safe trace inspection, Cancel/export, reduced-motion support, and separation from edits made after run start. Edit/Run workspace modes coexist with bottom Validation/Run detail tabs.
 
-Branching is an explicit requested capability. The user-accepted allocation is exclusive conditional split/merge in M3.5, with parallel fork/join, barriers, and cross-user coordination in M5; detailed gateway/predicate contracts must be reviewed before implementation. Current Rust remains linear-only until an approved shared schema/compiler/runtime extension exists. Conditions stay read-only and bounded; explicit gateway operations own routing. Specify gateway semantics, branch-local dataflow, condition limits, and safe route observations before implementing controls. Do not treat drawing two arrows as implemented branching or enable unsupported configurations for Run.
+Branching is an explicit requested capability. The user-accepted allocation is exclusive conditional split/merge in M3.5, with parallel fork/join, barriers, and cross-user coordination in M5. Structured exclusive routing is implemented under ADR 0002; conditions stay read-only and bounded, with explicit gateway operations owning routing. Branch-local dataflow, condition limits, and safe route observations are validated in the shared compiler/runtime. Parallel scheduling remains unavailable.
 
-M3.5 uses scenario schema v2 and report/live protocol v3 as specified in [ADR 0002](docs/adr/0002-editor-and-routing.md). The accepted pre-Phase-2 amendment removes V1 loading/migration entirely. Phase 1 provides scalar workflow ports, bounded calls/cleanup, and generated graph keys. The current desktop displays the iteration workflow from the complete V2 document. Exclusive predicates/routing remain gated until Phase 5 and full editor behavior remains later-phase work; see [progress](docs/milestone-3.5.md).
+M3.5 uses scenario schema v2 and report/live protocol v3 as specified in [ADR 0002](docs/adr/0002-editor-and-routing.md). The accepted pre-Phase-2 amendment removes V1 loading/migration entirely. Phases 1–6 provide typed scalar ports, bounded calls/cleanup, named extraction outputs, exclusive routing, and invocation-aware captured Run visualization. Run uses safe graph keys/labels and preserves its results independently of the editable document; see [progress](docs/milestone-3.5.md).
 
-See the [M3.5 implementation plan](plans/milestone-3.5.md) for dependency order, acceptance criteria, and remaining decisions. M3.5 Phase 1 shared foundation is implemented; the visual editor and token projection are not implemented yet.
+See the [M3.5 implementation plan](plans/milestone-3.5.md) for dependency order and acceptance criteria. Phases 1–6 are implemented; Phase 6b's unified lifecycle canvas and Phase 7 end-to-end/native acceptance remain pending.
 
 ## 11. Milestones and acceptance criteria
 
@@ -607,8 +679,8 @@ See the [M3.5 implementation plan](plans/milestone-3.5.md) for dependency order,
 | **M1 — Foundation**       | Workspace, desktop scaffold, scenario models/validator, CLI `validate`, canvas   | CLI and Tauri validate the same `hello-api.json`; unit tests pass      |
 | **M2 — Single-user HTTP** | HTTP adapter, sequential engine, event channel, `interl run`, response inspector | GET/POST execute in desktop and CLI; errors/timeouts/cancel observable |
 | **M3 — Stateful auth**    | Identity refs, login/extract/session updates, one user-owned session              | Single-user bearer/cookie auth; redacted CLI/desktop reports               |
-| **M3.5 — Scenario editor** | Reusable workflow/lifecycle authoring, typed inspectors/validation, directed canvas, exclusive branches, Edit/Run tokens; one VU/iteration | Create/edit/save a scenario, run its immutable snapshot, and visualize actual progress; exclusive branch behavior matches the approved Rust contract |
-| **M4 — Virtual users**    | Multiple workload groups, fixed/ramping VUs, iteration scheduling, identity assignment, global hooks, bounded concurrency                         | Independent groups ramp correctly; per-VU auth/session isolation, graceful stop, bounded resources; two-user auth isolation proof        |
+| **M3.5 — Scenario editor** | Unified Initialize/Iteration/Cleanup canvas, reusable calls, typed inspectors/validation, directed canvas, exclusive branches, Edit/Run tokens; one VU/iteration | Create/edit/save all lifecycle phases on one canvas, run the immutable snapshot, and visualize actual progress; exclusive routing and failure cleanup match the approved Rust contract |
+| **M4 — Virtual users**    | Multiple workload groups, fixed/ramping VUs, graphical Load/Repeat execution containers, bounded count/duration/until repetition, identity assignment, global hooks, bounded concurrency | Independent groups ramp correctly; containers wrap/unwrap and save/reopen; per-VU auth/session isolation, conditional limits, graceful stop, bounded resources; two-user auth isolation proof |
 | **M5 — Synchronization**  | Barriers, parallel fork/join, cross-user assertions; exclusive branching delivered in M3.5                            | Controlled double-booking test catches broken invariant                |
 | **M6 — Network/TLS**      | mTLS identity lifecycle, explicit retry policies, fault handling                 | Rotation uses new transport; in-flight requests remain safe            |
 | **M7 — Observability**    | Timeline filters, correlations, reports, repeat runs                             | Reproducible scenario inputs and redacted comparable traces            |

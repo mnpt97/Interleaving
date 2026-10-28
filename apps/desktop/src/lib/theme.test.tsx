@@ -28,7 +28,8 @@ function picker() {
   );
 }
 function choose(value: string) {
-  fireEvent.change(screen.getByRole('combobox', { name: 'Color theme' }), { target: { value } });
+  fireEvent.keyDown(screen.getByRole('combobox', { name: 'Color theme' }), { key: 'ArrowDown' });
+  fireEvent.keyDown(screen.getByRole('option', { name: value[0].toUpperCase() + value.slice(1) }), { key: 'Enter' });
 }
 
 beforeEach(() => {
@@ -48,7 +49,7 @@ describe('color theme', () => {
   it('follows OS appearance by default and stops listening after unmount', () => {
     const change = system(true);
     const view = picker();
-    expect(screen.getByRole('combobox', { name: 'Color theme' })).toHaveValue('system');
+    expect(screen.getByRole('combobox', { name: 'Color theme' })).toHaveTextContent('System');
     expect(document.documentElement).toHaveClass('dark');
     expect(document.documentElement.style.colorScheme).toBe('dark');
     change(false);
@@ -80,7 +81,7 @@ describe('color theme', () => {
     expect(document.documentElement).toHaveClass('dark');
     expect(document.documentElement.dataset.theme).toBe('dark');
     picker();
-    expect(screen.getByRole('combobox', { name: 'Color theme' })).toHaveValue('dark');
+    expect(screen.getByRole('combobox', { name: 'Color theme' })).toHaveTextContent('Dark');
   });
 
   it('falls back to the system for unknown saved values', () => {
@@ -89,7 +90,7 @@ describe('color theme', () => {
     initializeTheme();
     picker();
     expect(document.documentElement).toHaveClass('dark');
-    expect(screen.getByRole('combobox', { name: 'Color theme' })).toHaveValue('system');
+    expect(screen.getByRole('combobox', { name: 'Color theme' })).toHaveTextContent('System');
   });
 
   it('remains usable when storage or matchMedia is unavailable', () => {
@@ -104,7 +105,7 @@ describe('color theme', () => {
     picker();
     choose('dark');
     expect(document.documentElement).toHaveClass('dark');
-    expect(screen.getByRole('combobox', { name: 'Color theme' })).toHaveValue('dark');
+    expect(screen.getByRole('combobox', { name: 'Color theme' })).toHaveTextContent('Dark');
   });
 
   it('synchronizes native window appearance with manual and system choices', () => {

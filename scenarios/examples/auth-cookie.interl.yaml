@@ -1,8 +1,7 @@
+# yaml-language-server: $schema=../../schemas/scenario.schema.json
 schemaVersion: 2
 id: auth-cookie
 name: Single-user cookie login
-environment:
-  variables: {}
 clientProfiles:
 - id: api
   baseUrl: http://127.0.0.1:8080
@@ -24,13 +23,9 @@ groups:
   identityAssignment:
     mode: shared
     identityId: alice
-  executor:
-    kind: once
   lifecycle:
     iteration:
       workflowId: main
-      inputs: {}
-assertions: []
 workflows:
 - nodes:
   - id: start
@@ -68,8 +63,6 @@ workflows:
     id: edge-2
   id: main
   name: Single-user cookie login
-  inputs: {}
-  outputs: {}
   layout:
     positions:
       start:

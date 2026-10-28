@@ -1,5 +1,7 @@
+//! Stack-based workflow execution with bounded calls and cancellable HTTP requests.
 use super::*;
 impl Runtime {
+    /// Builds positional graph coordinates without including source values or credentials.
     fn context(
         &self,
         frame: Option<&Frame>,
@@ -18,6 +20,8 @@ impl Runtime {
             edge_key: frame.and_then(|f| edge.map(|e| format!("wf:{}/edge:{e}", f.flow))),
         }
     }
+    /// Redacts node labels and admits an observation to the shared trace.
+    /// Delivery timeout or exhausted report storage becomes a safe runtime failure.
     async fn event(
         &mut self,
         frame: Option<&Frame>,
@@ -45,6 +49,7 @@ impl Runtime {
         }
         Ok(())
     }
+    /// Creates invocation-local storage and enforces call count and stack depth limits.
     fn frame(
         &mut self,
         flow: usize,
@@ -78,6 +83,7 @@ impl Runtime {
             pending: false,
         })
     }
+    /// Checks cancellation, adapter shutdown, receiver loss, and the cleanup deadline.
     fn boundary(&self, cancel: &CancellationToken) -> Result<(), RunFailure> {
         check(cancel)?;
         if self.control.shutdown.is_cancelled() || self.trace.sender.is_closed() {
@@ -91,14 +97,131 @@ impl Runtime {
         }
         Ok(())
     }
+    /// Finishes a node, releases values at their last use, and emits the next edge.
     async fn advance(
         &mut self,
         frame: &mut Frame,
         cancel: &CancellationToken,
     ) -> Result<(), RunFailure> {
-        let w = &self.program.workflows()[frame.flow];
+        let program = Arc::clone(&self.program);
+        let w = &program.workflows()[frame.flow];
         let index = w.order()[frame.pc];
-        let node = w.definition().nodes[index].clone();
+        let node = &w.definition().nodes[index];
+        let outgoing: Vec<_> = w
+            .definition()
+            .edges
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.from == node.id())
+            .collect();
+        let selected_edge = if let ProgramNode::ExclusiveSplit { config, .. } = node {
+            let status = frame
+                .values
+                .get(&ValueKey::Response(config.source_node_id.clone()))
+                .and_then(Value::as_u64)
+                .and_then(|v| u16::try_from(v).ok())
+                .ok_or_else(|| {
+                    failure(
+                        "routeSourceUnavailable",
+                        "Route source status is unavailable.",
+                    )
+                })?;
+            let body = if outgoing
+                .iter()
+                .any(|(index, _)| w.predicate(*index).is_some_and(|p| p.requires_body()))
+            {
+                Some(
+                    frame
+                        .extraction
+                        .response_body(&config.source_node_id, cancel)?,
+                )
+            } else {
+                None
+            };
+            let inputs = config
+                .inputs
+                .iter()
+                .map(|(name, source)| {
+                    Ok((
+                        name.clone(),
+                        self.scalar(source, Some(frame), None)?.owned(),
+                    ))
+                })
+                .collect::<Result<BTreeMap<_, _>, RunFailure>>()?;
+            let (entries, bytes, responses) = frame.extraction.usage();
+            self.capacity(
+                entries + frame.values.len() + inputs.len(),
+                bytes
+                    + frame
+                        .values
+                        .values()
+                        .map(crate::budget::value_bytes)
+                        .sum::<usize>()
+                    + inputs
+                        .values()
+                        .map(crate::budget::value_bytes)
+                        .sum::<usize>(),
+                responses,
+            )?;
+            let mut matches = Vec::new();
+            let mut fallback = None;
+            for &(edge_index, edge) in &outgoing {
+                self.boundary(cancel)?;
+                if edge.is_default == Some(true) {
+                    fallback = Some(edge_index);
+                    continue;
+                }
+                let predicate = w.predicate(edge_index).ok_or_else(|| {
+                    failure("invalidProgram", "Compiled predicate is unavailable.")
+                })?;
+                let result = predicate.evaluate_context(status, body.as_ref(), &inputs, || {
+                    cancel.is_cancelled() || self.control.shutdown.is_cancelled()
+                });
+                let result = result.map_err(|error| {
+                    failure(
+                        match error {
+                            interl_core::PredicateError::Cancelled => "cancelled",
+                            interl_core::PredicateError::Unavailable => "routeSourceUnavailable",
+                            interl_core::PredicateError::TypeMismatch => "routeTypeMismatch",
+                        },
+                        &error.to_string(),
+                    )
+                })?;
+                if result {
+                    matches.push(edge_index);
+                }
+            }
+            if matches.len() > 1 {
+                return Err(failure(
+                    "routeAmbiguous",
+                    "More than one route condition matched.",
+                ));
+            }
+            let selected = matches.first().copied().or(fallback).ok_or_else(|| {
+                failure(
+                    "routeNoMatch",
+                    "No route condition matched and no default exists.",
+                )
+            })?;
+            self.event(
+                Some(frame),
+                Some(index),
+                None,
+                EventKind::RouteSelected {
+                    selected_edge_key: format!("wf:{}/edge:{selected}", frame.flow),
+                    unselected_edge_keys: outgoing
+                        .iter()
+                        .filter(|(i, _)| *i != selected)
+                        .map(|(i, _)| format!("wf:{}/edge:{i}", frame.flow))
+                        .collect(),
+                },
+                false,
+            )
+            .await?;
+            Some(selected)
+        } else {
+            outgoing.first().map(|(i, _)| *i)
+        };
         self.event(
             Some(frame),
             Some(index),
@@ -115,18 +238,8 @@ impl Runtime {
                 .get(key)
                 .is_some_and(|last| last != node.id())
         });
-        if let Some(next) = self.program.workflows()[frame.flow]
-            .order()
-            .get(frame.pc + 1)
-        {
-            let w = self.program.workflows()[frame.flow].definition();
-            let next = w.nodes[*next].id();
-            let edge = w
-                .edges
-                .iter()
-                .position(|e| e.from == node.id() && e.to == next)
-                .expect("compiled edge");
-            check(cancel)?;
+        if let Some(edge) = selected_edge {
+            self.boundary(cancel)?;
             self.event(
                 Some(frame),
                 None,
@@ -135,19 +248,26 @@ impl Runtime {
                 false,
             )
             .await?;
+            let target = &w.definition().edges[edge].to;
+            frame.pc = w
+                .order()
+                .iter()
+                .position(|i| w.definition().nodes[*i].id() == target)
+                .ok_or_else(|| failure("invalidProgram", "Compiled edge target is unavailable."))?;
+        } else {
+            frame.pc = w.order().len();
         }
-        frame.pc += 1;
         Ok(())
     }
-    async fn http(
+    /// Emits sanitized observations around a cancellable HTTP exchange.
+    /// Tokio select drops the HTTP future when a stronger shutdown branch wins.
+    async fn send_request(
         &mut self,
-        frame: &mut Frame,
+        frame: &Frame,
         index: usize,
-        node_id: &str,
-        http: &ProgramHttp,
+        request: interl_http::PreparedRequest,
         cancel: &CancellationToken,
-    ) -> Result<(), RunFailure> {
-        let request = self.prepare_http(frame, http, cancel)?;
+    ) -> Result<interl_http::HttpResponse, RunFailure> {
         let key = format!("wf:{}/node:{index}", frame.flow);
         let event = self
             .security
@@ -181,6 +301,107 @@ impl Runtime {
             .response_event(&key, &response, self.options.max_preview_bytes);
         self.event(Some(frame), Some(index), None, event, false)
             .await?;
+        Ok(response)
+    }
+    /// Replaces the current session with a fresh login and retains only safe observations.
+    /// Failed login cannot leave a partially authenticated session for later cleanup.
+    async fn authenticate(
+        &mut self,
+        frame: &Frame,
+        index: usize,
+        auth: &AuthenticationConfig,
+        cancel: &CancellationToken,
+    ) -> Result<(), RunFailure> {
+        // Clear before attempting login: failures and cleanup cannot reuse a stale identity.
+        self.session = self.session.fresh()?;
+        let key = authentication_key(frame.flow, index);
+        let username = self.security.credential(&key, "username").ok_or_else(|| {
+            failure(
+                "authenticationCredentials",
+                "Authentication credentials unavailable",
+            )
+        })?;
+        let password = self.security.credential(&key, "password").ok_or_else(|| {
+            failure(
+                "authenticationCredentials",
+                "Authentication credentials unavailable",
+            )
+        })?;
+        let mut fields = serde_json::Map::new();
+        fields.insert(auth.username_key.clone(), json!(username));
+        fields.insert(auth.password_key.clone(), json!(password));
+        let cfg = interl_core::HttpConfig {
+            method: auth.method,
+            path: auth.path.clone(),
+            headers: BTreeMap::new(),
+            timeout_ms: None,
+            body: None,
+        };
+        let request = self.session.prepare_target(
+            &cfg,
+            &self.program.document().environment.variables,
+            Some(ResolvedBody::Json(Value::Object(fields))),
+            auth.base_url
+                .as_deref()
+                .or(scenario_base_url(self.program.document())),
+        )?;
+        let url = request.url().clone();
+        let result = async {
+            let response = self.send_request(frame, index, request, cancel).await?;
+            if !(200..300).contains(&response.status) {
+                return Err(failure(
+                    "authenticationFailed",
+                    "Authentication requires a successful HTTP response",
+                ));
+            }
+            match auth.mode {
+                AuthenticationMode::Bearer => {
+                    let token = crate::extract::authentication_token(
+                        &response,
+                        &auth.token_expression,
+                        cancel,
+                    )?;
+                    self.security.remember_secret(&token);
+                    self.session.update_headers(
+                        &BTreeMap::from([(
+                            auth.header_name.clone(),
+                            format!("{}{}", auth.header_prefix, token),
+                        )]),
+                        &[],
+                    )?;
+                }
+                AuthenticationMode::Cookie => {
+                    if !response.headers.contains_key("set-cookie")
+                        || !self.session.has_response_cookies(&url, &response.headers)
+                    {
+                        return Err(failure(
+                            "authenticationFailed",
+                            "Authentication response did not establish a session cookie",
+                        ));
+                    }
+                }
+            }
+            self.boundary(cancel)?;
+            Ok(())
+        }
+        .await;
+        if result.is_err() {
+            self.session = self.session.fresh()?;
+        }
+        result
+    }
+
+    /// Prepares and sends a request, retaining response data only for planned extraction.
+    async fn http(
+        &mut self,
+        frame: &mut Frame,
+        index: usize,
+        node_id: &str,
+        http: &ProgramHttp,
+        cancel: &CancellationToken,
+    ) -> Result<(), RunFailure> {
+        let request = self.prepare_http(frame, http, cancel)?;
+        let response = self.send_request(frame, index, request, cancel).await?;
         let flow = &self.program.workflows()[frame.flow];
         let status_key = ValueKey::Response(node_id.into());
         if flow.last_uses().contains_key(&status_key) {
@@ -203,6 +424,7 @@ impl Runtime {
         Ok(())
     }
 
+    /// Executes one compiled node or returns a child frame for a workflow call.
     async fn step(
         &mut self,
         frame: &mut Frame,
@@ -215,9 +437,12 @@ impl Runtime {
                 "Executed node visit limit exceeded.",
             ));
         }
-        let flow = &self.program.workflows()[frame.flow];
+        // Arc::clone shares the immutable program. Borrowing through this local handle
+        // lets us mutate the runtime across await without copying node bodies.
+        let program = Arc::clone(&self.program);
+        let flow = &program.workflows()[frame.flow];
         let index = flow.order()[frame.pc];
-        let node = flow.definition().nodes[index].clone();
+        let node = &flow.definition().nodes[index];
         self.event(
             Some(frame),
             Some(index),
@@ -230,13 +455,13 @@ impl Runtime {
         .await?;
         frame.pending = true;
         self.boundary(cancel)?;
-        match &node {
+        match node {
             ProgramNode::Call { config, .. } => {
                 let inputs = self.bindings(config, Some(frame), None)?;
                 let flow = self
                     .program
                     .workflow_index(&config.workflow_id)
-                    .expect("validated callee");
+                    .ok_or_else(|| failure("invalidProgram", "Compiled callee is unavailable."))?;
                 let child = self.frame(
                     flow,
                     inputs,
@@ -253,15 +478,21 @@ impl Runtime {
                 .await?;
                 return Ok(Some(child));
             }
+            ProgramNode::Authentication { config, .. } => {
+                self.authenticate(frame, index, config, cancel).await?;
+            }
             ProgramNode::Http { config, .. } => {
                 self.http(frame, index, node.id(), config, cancel).await?
             }
-            ProgramNode::Extract { .. } => {
+            ProgramNode::Extract { config, .. } => {
                 let (entries, bytes) = self.extraction_budget(frame)?;
-                let value = frame
+                frame
                     .extraction
                     .extract_bounded(node.id(), cancel, entries, bytes)?;
-                self.security.remember_secret(value.expose());
+                for (name, _, _) in config.entries() {
+                    let value = frame.extraction.output(node.id(), name)?;
+                    self.security.remember_secret(value.expose());
+                }
             }
             ProgramNode::SetSession { config, .. } => {
                 self.session_update(config, frame, cancel)?;
@@ -280,19 +511,18 @@ impl Runtime {
                 self.event(Some(frame), Some(index), None, event, false)
                     .await?;
             }
-            ProgramNode::Start { .. } | ProgramNode::End { .. } => {}
-            _ => {
-                return Err(failure(
-                    "unsupportedFeature",
-                    "Exclusive routing is unavailable before Phase 5.",
-                ))
-            }
+            ProgramNode::Start { .. }
+            | ProgramNode::End { .. }
+            | ProgramNode::ExclusiveSplit { .. }
+            | ProgramNode::ExclusiveMerge { .. } => {}
         }
         self.boundary(cancel)?;
         self.advance(frame, cancel).await?;
         Ok(None)
     }
 
+    /// Runs the explicit call stack and moves completed outputs into the suspended caller.
+    /// Popping frames avoids recursive async futures and keeps invocation storage bounded.
     async fn loop_frames(
         &mut self,
         cancel: &CancellationToken,
@@ -363,6 +593,7 @@ impl Runtime {
         Ok(BTreeMap::new())
     }
 
+    /// Runs one lifecycle binding and records its terminal outcome, including failures.
     async fn root(
         &mut self,
         binding: &WorkflowBinding,
@@ -386,7 +617,7 @@ impl Runtime {
             let frame = self.frame(
                 self.program
                     .workflow_index(&binding.workflow_id)
-                    .expect("root"),
+                    .ok_or_else(|| failure("invalidProgram", "Root workflow is unavailable."))?,
                 inputs,
                 None,
                 None,
@@ -455,6 +686,7 @@ impl Runtime {
             .await;
         result
     }
+    /// Executes initialize, iteration, and eligible bounded cleanup, then returns the report.
     pub(super) async fn run(mut self, graph: Value) -> RunReport {
         self.trace.context = EventContext::default();
         let scenario_id = self.security.text(&self.program.document().id);
@@ -480,7 +712,8 @@ impl Runtime {
                 .await
                 .err();
         }
-        let lifecycle = self.program.document().groups[0].lifecycle.clone();
+        let program = Arc::clone(&self.program);
+        let lifecycle = &program.document().groups[0].lifecycle;
         let mut init = BTreeMap::new();
         if primary.is_none() {
             if let Some(binding) = &lifecycle.initialize {
@@ -503,7 +736,7 @@ impl Runtime {
                 .err();
         }
         let mut cleanup = CleanupOutcome::default();
-        if let Some(binding) = lifecycle.cleanup {
+        if let Some(binding) = &lifecycle.cleanup {
             self.phase = "cleanup".into();
             let skip = if self.trace.truncated
                 || primary.as_ref().is_some_and(|e| {
@@ -550,7 +783,7 @@ impl Runtime {
                 );
                 self.trace.cleanup_deadline = self.cleanup_deadline;
                 let token = CancellationToken::new();
-                match self.root(&binding, None, &token).await {
+                match self.root(binding, None, &token).await {
                     Ok(_) => cleanup.status = "completed".into(),
                     Err(e) => {
                         cleanup.status = if e.kind == "cancelled" {

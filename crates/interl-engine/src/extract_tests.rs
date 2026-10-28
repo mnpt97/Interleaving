@@ -48,6 +48,88 @@ fn padded(size: usize) -> Vec<u8> {
     assert_eq!(bytes.len(), size);
     bytes
 }
+
+fn multi_output_state() -> ExtractionState {
+    let mut doc = document();
+    let WorkflowNode::Extract { config, .. } = &mut doc.workflows[0].nodes[2] else {
+        panic!()
+    };
+    *config = serde_json::from_value(json!({
+        "sourceNodeId": "login",
+        "outputs": {
+            "token": { "expression": "response.body.accessToken" },
+            "count": { "expression": "response.body.count", "type": "integer" },
+            "ready": { "expression": "response.body.ready", "type": "boolean" }
+        }
+    }))
+    .unwrap();
+    let program = compile_scenario(&doc).unwrap();
+    ExtractionState::new(program.workflows()[0].auth(), MAX_RESPONSE_BYTES).unwrap()
+}
+
+#[test]
+fn multiple_outputs_publish_typed_values_together() {
+    let mut state = multi_output_state();
+    put(
+        &mut state,
+        br#"{"accessToken":"private-token","count":3,"ready":true}"#.to_vec(),
+    );
+    state
+        .extract_bounded("extract-token", &CancellationToken::new(), 3, 8192)
+        .unwrap();
+    assert_eq!(
+        state.output("extract-token", "token").unwrap().value(),
+        "private-token"
+    );
+    assert_eq!(
+        state.output("extract-token", "count").unwrap().value(),
+        &json!(3)
+    );
+    assert_eq!(
+        state.output("extract-token", "ready").unwrap().value(),
+        &json!(true)
+    );
+}
+
+#[test]
+fn failed_multi_output_reextraction_clears_old_values_without_partial_publication() {
+    for invalid in [
+        json!({"accessToken":"private-token","count":3}),
+        json!({"accessToken":"private-token","count":3,"ready":"true"}),
+        json!({"accessToken":"private-token","count":3,"ready":null}),
+    ] {
+        let mut state = multi_output_state();
+        put(
+            &mut state,
+            br#"{"accessToken":"private-token","count":3,"ready":true}"#.to_vec(),
+        );
+        state
+            .extract_bounded("extract-token", &CancellationToken::new(), 3, 8192)
+            .unwrap();
+        put(&mut state, serde_json::to_vec(&invalid).unwrap());
+        assert!(state
+            .extract_bounded("extract-token", &CancellationToken::new(), 3, 8192)
+            .is_err());
+        assert!(state.outputs.is_empty());
+        assert_eq!(state.output_bytes, 0);
+    }
+}
+
+#[test]
+fn multi_output_extraction_counts_each_scalar_against_aggregate_limits() {
+    for (entries, bytes) in [(2, 8192), (3, 2)] {
+        let mut state = multi_output_state();
+        put(
+            &mut state,
+            br#"{"accessToken":"private-token","count":3,"ready":true}"#.to_vec(),
+        );
+        assert_eq!(
+            state.extract_bounded("extract-token", &CancellationToken::new(), entries, bytes),
+            Err(ExtractionError::OutputLimit)
+        );
+        assert!(state.outputs.is_empty());
+    }
+}
 fn many_document(count: usize) -> ScenarioDocument {
     let mut doc = document();
     let end = doc.workflows[0].nodes.last().unwrap().clone();
@@ -60,8 +142,11 @@ fn many_document(count: usize) -> ScenarioDocument {
     for index in 0..count {
         let id = format!("extract-{index}");
         doc.workflows[0].nodes.push(WorkflowNode::Extract {
+            name: None,
             id: id.clone(),
             config: ExtractConfig {
+                outputs: Default::default(),
+                output_type: interl_core::PortType::String,
                 source_node_id: "login".into(),
                 expression: "response.body.accessToken".into(),
                 output: "token".into(),
