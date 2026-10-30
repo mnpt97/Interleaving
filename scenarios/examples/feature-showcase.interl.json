@@ -211,6 +211,10 @@
                       "value": "showcase"
                     },
                     {
+                      "source": "literal",
+                      "value": "<ready>&雪"
+                    },
+                    {
                       "source": "environment",
                       "name": "label"
                     }
@@ -850,7 +854,7 @@
           "name": "Cleanup Health",
           "config": {
             "method": "GET",
-            "path": "/health"
+            "path": "/health?label=${label}"
           }
         },
         {

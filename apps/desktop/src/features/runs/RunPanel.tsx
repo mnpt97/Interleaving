@@ -4,7 +4,7 @@ import { useRunView } from './useRunView';
 import { detailEvent, duration, type NodeExecution, type Invocation, type Projection } from './projection';
 import { Download, Play, Square, ChevronDown } from 'lucide-react';
 import { Button } from '../../components/ui/button';
-import { desktopAvailable } from '../../lib/tauri';
+import { desktopAvailable } from '../../lib/desktop';
 import { useScenarioStore } from '../scenarios/store';
 import { activeRun, useRunStore } from './store';
 export function RunPanel() {

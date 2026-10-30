@@ -1,4 +1,4 @@
-import configuredSource from '../../../../../crates/interl-engine/tests/fixtures/editor-configured.json?raw';
+import configuredSource from '../../../../../tests/fixtures/editor/editor-configured.json?raw';
 import { expect, it } from 'vitest';
 import { executeCommand, newDraft } from './draft';
 import { readNativeAuthentication } from './authentication';

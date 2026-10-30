@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RunPanel } from './RunPanel';
 import { useRunStore } from './store';
 import { useScenarioStore } from '../scenarios/store';
-vi.mock('../../lib/tauri', async (original) => ({
-  ...(await original<typeof import('../../lib/tauri')>()),
+vi.mock('../../lib/desktop', async (original) => ({
+  ...(await original<typeof import('../../lib/desktop')>()),
   desktopAvailable: true,
 }));
 const initialScenario = useScenarioStore.getState();

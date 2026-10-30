@@ -17,7 +17,7 @@ import {
   readScenarioFile,
   saveScenarioJson,
   validateSource,
-} from '../../lib/tauri';
+} from '../../lib/desktop';
 import { activeRun, useRunStore } from '../runs/store';
 import { moveNode } from './adapters';
 import { executeCommand, newDraft, type EditorCommand } from './draft';

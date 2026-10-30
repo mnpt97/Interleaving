@@ -4,7 +4,7 @@ Whenever a supported scenario, editor, or execution feature is added or changed,
 extend `feature-showcase.interl.json` and its equivalent YAML file in the same
 change. Keep one coherent runnable journey; do not add unsupported placeholders.
 Update the feature checklist in `README.md` and the showcase runtime regression
-in `crates/interl-engine/tests/reusable.rs` when expected behavior changes.
+in `go/internal/adapters/inbound/testserver/handler_test.go` when expected behavior changes.
 
 The showcase runs against the existing local test server using fake credentials
 through environment references. Keep JSON and YAML semantically identical,

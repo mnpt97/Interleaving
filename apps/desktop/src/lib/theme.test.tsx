@@ -1,12 +1,13 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { isTauri } from '@tauri-apps/api/core';
 import { ThemeControl } from '../components/ThemeControl';
 import { initializeTheme, ThemeProvider } from './theme';
 
-const native = vi.hoisted(() => ({ setTheme: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('@tauri-apps/api/core', () => ({ isTauri: vi.fn(() => false) }));
-vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => native }));
+const native = vi.hoisted(() => ({ native: false, setTheme: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('./desktop', () => ({
+  desktopHost: native,
+  hostStorageKey: (key: string) => key,
+}));
 
 function system(dark: boolean) {
   const media = Object.assign(new EventTarget(), { matches: dark });
@@ -36,7 +37,7 @@ beforeEach(() => {
   localStorage.clear();
   document.documentElement.className = '';
   delete document.documentElement.dataset.theme;
-  vi.mocked(isTauri).mockReturnValue(false);
+  native.native = false;
   native.setTheme.mockClear();
   system(false);
 });
@@ -109,7 +110,7 @@ describe('color theme', () => {
   });
 
   it('synchronizes native window appearance with manual and system choices', () => {
-    vi.mocked(isTauri).mockReturnValue(true);
+    native.native = true;
     picker();
     expect(native.setTheme).toHaveBeenLastCalledWith(null);
     choose('dark');

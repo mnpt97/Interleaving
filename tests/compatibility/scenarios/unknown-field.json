@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 2,
+  "id": "hello-api",
+  "name": "Hello API",
+  "clientProfiles": [
+    {
+      "id": "api",
+      "baseUrl": "http://127.0.0.1:8080",
+      "timeoutMs": 10000,
+      "headers": {
+        "accept": "application/json"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "visitors",
+      "clientProfileId": "api",
+      "lifecycle": {
+        "iteration": {
+          "workflowId": "main"
+        }
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "health",
+          "type": "http",
+          "config": {
+            "method": "GET",
+            "path": "/health"
+          }
+        },
+        {
+          "id": "end",
+          "type": "end"
+        }
+      ],
+      "edges": [
+        {
+          "from": "start",
+          "to": "health",
+          "id": "edge-0"
+        },
+        {
+          "from": "health",
+          "to": "end",
+          "id": "edge-1"
+        }
+      ],
+      "id": "main",
+      "name": "Hello API",
+      "layout": {
+        "positions": {
+          "start": {
+            "x": 80,
+            "y": 160
+          },
+          "health": {
+            "x": 340,
+            "y": 160
+          },
+          "end": {
+            "x": 600,
+            "y": 160
+          }
+        }
+      }
+    }
+  ],
+  "unexpected": true
+}

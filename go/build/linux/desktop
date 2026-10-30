@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Interleaving Go
+Comment=Interleaving Go desktop
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/interleaving-go %u
+Terminal=false
+Type=Application
+Icon=interleaving-go
+Categories=Utility;
+StartupWMClass=interleaving-go
+
+ 

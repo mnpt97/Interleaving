@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it } from 'vitest';
-import legacySource from '../../../../../crates/interl-engine/tests/fixtures/editor-auth.json?raw';
+import legacySource from '../../../../../tests/fixtures/editor/editor-auth.json?raw';
 import { documentSchema } from '../../lib/scenario-types';
 import { readAuthentication } from './authentication';
 import { executeCommand, newDraft } from './draft';

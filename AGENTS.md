@@ -5,7 +5,7 @@ extend the living feature showcase in the same change:
 
 - `scenarios/examples/feature-showcase.interl.json` and its equivalent YAML file.
 - The feature checklist and UI exercise guidance in `scenarios/examples/README.md`.
-- The showcase regression in `crates/interl-engine/tests/reusable.rs` when behavior changes.
+- The showcase regression in `go/internal/adapters/inbound/testserver/handler_test.go` when behavior changes.
 
 Keep the example runnable against the local test server with fake credentials.
 For UI-only features, update the exercise guidance without inventing persisted

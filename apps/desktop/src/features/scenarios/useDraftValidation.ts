@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { desktopAvailable } from '../../lib/tauri';
+import { desktopAvailable } from '../../lib/desktop';
 import { useScenarioStore } from './store';
 
 /** Debounce accepted domain edits; transient fragments never cross the bridge. */

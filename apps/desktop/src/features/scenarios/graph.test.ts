@@ -1,4 +1,4 @@
-import linearFixture from '../../../../../crates/interl-engine/tests/fixtures/editor-linear.json?raw';
+import linearFixture from '../../../../../tests/fixtures/editor/editor-linear.json?raw';
 import { describe, expect, it, vi } from 'vitest';
 import { executeCommand, newDraft } from './draft';
 import { canCall, connectionError } from './graph';
@@ -152,7 +152,7 @@ it('does not mistake literal body or port data for executable references during 
   expect(() => executeCommand(draft, { type: 'node.delete', workflowId, nodeId: 'http-1' })).not.toThrow();
 });
 
-it('constructs the Rust-validated linear fixture from New using insertion and inspector commands', () => {
+it('constructs the backend-validated linear fixture from New using insertion and inspector commands', () => {
   let document = newDraft();
   document.id = 'editor-linear';
   document = executeCommand(document, { type: 'name', name: 'Editor linear workflow' });

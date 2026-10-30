@@ -103,6 +103,7 @@ it('resizes the phase independently of incomplete fields', () => {
   expect(captured.props.nodes!.find((node) => node.id === 'phase:iteration')!.style).toEqual({
     width: 1000,
     height: 600,
+    pointerEvents: 'none',
   });
 });
 

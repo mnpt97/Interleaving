@@ -2,8 +2,8 @@ import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useDraftValidation } from './useDraftValidation';
 import { useScenarioStore } from './store';
-vi.mock('../../lib/tauri', async (original) => ({
-  ...(await original<typeof import('../../lib/tauri')>()),
+vi.mock('../../lib/desktop', async (original) => ({
+  ...(await original<typeof import('../../lib/desktop')>()),
   desktopAvailable: true,
 }));
 const initial = useScenarioStore.getState();

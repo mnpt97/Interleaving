@@ -97,7 +97,7 @@ export function lifecycleRunModel(
       type: 'runPhase',
       position: { x: 80, y },
       data: { phase, root, width, height, state },
-      style: { width, height },
+      style: { width, height, pointerEvents: 'none' },
       draggable: false,
       connectable: false,
       selectable: false,

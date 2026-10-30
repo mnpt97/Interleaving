@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../../components/ui/dialog';
-import { desktopAvailable } from '../../lib/tauri';
+import { desktopAvailable } from '../../lib/desktop';
 import { useScenarioStore } from './store';
 export function UnsavedChangesDialog() {
   const state = useScenarioStore();

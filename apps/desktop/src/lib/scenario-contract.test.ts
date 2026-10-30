@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { documentSchema, scenarioFileSchema } from './scenario-document';
 import { executeCommand, newDraft } from '../features/scenarios/draft';
 
-it('accepts all repository JSON examples through the Rust-generated structural contract and editor adapter', () => {
+it('accepts all repository JSON examples through the schema-generated structural contract and editor adapter', () => {
   const files = import.meta.glob('../../../../scenarios/examples/*.json', {
     eager: true,
     query: '?raw',

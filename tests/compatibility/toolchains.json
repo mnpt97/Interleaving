@@ -1,0 +1,16 @@
+{
+  "formatVersion": 1,
+  "go": {
+    "version": "go1.27.3",
+    "selection": "explicit project toolchain; do not change global defaults",
+    "source": "https://go.dev/dl/?mode=json"
+  },
+  "wails": {
+    "module": "github.com/wailsapp/wails/v3",
+    "version": "v3.0.0",
+    "moduleGoVersion": "1.26.0",
+    "moduleToolchain": "go1.26.10",
+    "release": "https://github.com/wailsapp/wails/releases/tag/v3.0.0",
+    "manifest": "https://raw.githubusercontent.com/wailsapp/wails/v3.0.0/v3/go.mod"
+  }
+}

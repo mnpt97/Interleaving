@@ -40,7 +40,7 @@ it('rejects v1 and unknown versions without accepting legacy workflow/count fiel
   expect(documentSchema.safeParse(v).success).toBe(false);
 });
 
-it('preserves typed semantic drafts for Rust diagnostics instead of hiding invalid scalar values', () => {
+it('preserves typed semantic drafts for backend diagnostics instead of hiding invalid scalar values', () => {
   const v = JSON.parse(source);
   v.workflows[1].inputs.token.default = null;
   v.groups[0].lifecycle.iteration.inputs.token = { source: 'literal', value: { invalid: 'scalar' } };

@@ -1,25 +1,11 @@
-// Generate the file contract from Rust. The editor adapter supplies convenient
-// defaults separately; graph validity and resource budgets remain Rust checks.
-import { execFileSync } from "node:child_process";
+// Generate TypeScript and the Go embedded schema from the shared JSON Schema.
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const check = process.argv.includes("--check");
 const schema = JSON.parse(
-  execFileSync(
-    "cargo",
-    [
-      "run",
-      "-q",
-      "-p",
-      "interl-core",
-      "--example",
-      "export_schema",
-      "--locked",
-    ],
-    { cwd: root, encoding: "utf8" },
-  ),
+  readFileSync(resolve(root, "schemas/scenario.schema.json"), "utf8"),
 );
 const q = JSON.stringify;
 function type(s) {
@@ -61,7 +47,10 @@ const types =
     .join("\n") +
   `\nexport type ScenarioFile = ${type(schema)};\n`;
 const artifacts = [
-  ["schemas/scenario.schema.json", JSON.stringify(schema, null, 2) + "\n"],
+  [
+    "go/internal/adapters/outbound/scenariocodec/scenario.schema.json",
+    JSON.stringify(schema, null, 2) + "\n",
+  ],
   ["apps/desktop/src/lib/generated/scenario-file.ts", types],
 ];
 for (const [path, content] of artifacts) {

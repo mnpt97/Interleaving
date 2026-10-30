@@ -1,0 +1,106 @@
+{
+  "library": "github.com/pbinitiative/feel",
+  "version": "v1.0.6",
+  "policy": "Use the external evaluator runtime semantics; keep Rust expectations unchanged.",
+  "cases": [
+    {
+      "id": "null-property",
+      "expression": "response.body.flag = true",
+      "baselineExpected": {
+        "error": "unavailable"
+      },
+      "expected": {
+        "value": false
+      },
+      "reason": "The library compares a null property with true and returns false."
+    },
+    {
+      "id": "boolean-ordering",
+      "expression": "true < false",
+      "baselineExpected": {
+        "error": "typeMismatch"
+      },
+      "expected": {
+        "value": false
+      },
+      "reason": "The library orders booleans, so true < false is false."
+    },
+    {
+      "id": "response-integer-float",
+      "expression": "response.body.n = 1",
+      "baselineExpected": {
+        "error": "typeMismatch"
+      },
+      "expected": {
+        "value": true
+      },
+      "reason": "The library has one numeric type; response number 1.0 equals integer literal 1."
+    },
+    {
+      "id": "response-unsafe-integer",
+      "expression": "response.body.n = 1",
+      "baselineExpected": {
+        "error": "typeMismatch"
+      },
+      "expected": {
+        "value": false
+      },
+      "reason": "Response numbers use the library numeric representation; the large response integer differs from 1."
+    },
+    {
+      "id": "boolean-body-ordering",
+      "expression": "response.body.left < response.body.right",
+      "baselineExpected": {
+        "error": "typeMismatch"
+      },
+      "expected": {
+        "value": true
+      },
+      "reason": "The library orders booleans, including dynamic response values."
+    },
+    {
+      "id": "mixed-type-inequality",
+      "expression": "response.body.flag != \"true\"",
+      "baselineExpected": {
+        "error": "typeMismatch"
+      },
+      "expected": {
+        "value": false
+      },
+      "reason": "The library returns false for inequality between incompatible operand types."
+    },
+    {
+      "id": "numeric-logical-coercion",
+      "expression": "response.body.count and true",
+      "baselineExpected": {
+        "error": "typeMismatch"
+      },
+      "expected": {
+        "value": true
+      },
+      "reason": "The library applies numeric truthiness in boolean operators."
+    },
+    {
+      "id": "string-logical-coercion",
+      "expression": "response.body.label and true",
+      "baselineExpected": {
+        "error": "typeMismatch"
+      },
+      "expected": {
+        "value": true
+      },
+      "reason": "The library applies string truthiness in boolean operators."
+    },
+    {
+      "id": "null-logical-coercion",
+      "expression": "response.body.flag and true",
+      "baselineExpected": {
+        "error": "unavailable"
+      },
+      "expected": {
+        "value": true
+      },
+      "reason": "The pinned library treats its null value as truthy in boolean operators."
+    }
+  ]
+}

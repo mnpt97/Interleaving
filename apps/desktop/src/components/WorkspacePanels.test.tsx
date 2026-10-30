@@ -7,12 +7,9 @@ import { WorkspacePanels } from './WorkspacePanels';
 import { useScenarioStore } from '../features/scenarios/store';
 import { useRunStore } from '../features/runs/store';
 
-vi.mock('../lib/tauri', async (original) => ({
-  ...(await original<typeof import('../lib/tauri')>()),
+vi.mock('../lib/desktop', async (original) => ({
+  ...(await original<typeof import('../lib/desktop')>()),
   desktopAvailable: true,
-}));
-vi.mock('@tauri-apps/api/window', () => ({
-  getCurrentWindow: () => ({ onCloseRequested: vi.fn().mockResolvedValue(() => {}) }),
 }));
 vi.mock('./ThemeControl', () => ({ ThemeControl: () => null }));
 vi.mock('../features/scenarios/ScenarioCanvas', () => ({ ScenarioCanvas: () => <div>Workflow canvas</div> }));
@@ -90,6 +87,7 @@ describe('workspace panel tabs', () => {
 
   it('toggles the inspector and reopens it when selecting the same or another node', async () => {
     const user = userEvent.setup();
+    useScenarioStore.setState({ canvasView: 'workflow' });
     render(<App />);
     const toggle = screen.getByRole('button', { name: 'Inspector' });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');

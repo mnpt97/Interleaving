@@ -1,0 +1,411 @@
+{
+  "formatVersion": 1,
+  "predicates": [
+    {
+      "id": "http-status",
+      "expression": "response.status = 200",
+      "status": 200,
+      "body": {
+        "value": {
+          "status": true,
+          "attempts": 3,
+          "label": "ready"
+        }
+      },
+      "inputs": {
+        "ready": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "body-boolean",
+      "expression": "response.body.value.status = true",
+      "status": 200,
+      "body": {
+        "value": {
+          "status": true,
+          "attempts": 3,
+          "label": "ready"
+        }
+      },
+      "inputs": {
+        "ready": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "bound-boolean",
+      "expression": "response.body.value.status = inputs.ready",
+      "status": 200,
+      "body": {
+        "value": {
+          "status": true,
+          "attempts": 3,
+          "label": "ready"
+        }
+      },
+      "inputs": {
+        "ready": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "and-string-integer",
+      "expression": "response.body.value.attempts >= 2 and response.body.value.label = \"ready\"",
+      "status": 200,
+      "body": {
+        "value": {
+          "status": true,
+          "attempts": 3,
+          "label": "ready"
+        }
+      },
+      "inputs": {
+        "ready": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "bare-boolean",
+      "expression": "response.body.value.status",
+      "status": 200,
+      "body": {
+        "value": {
+          "status": true,
+          "attempts": 3,
+          "label": "ready"
+        }
+      },
+      "inputs": {
+        "ready": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "negative-integer",
+      "expression": "response.body.value.attempts > -1",
+      "status": 200,
+      "body": {
+        "value": {
+          "status": true,
+          "attempts": 3,
+          "label": "ready"
+        }
+      },
+      "inputs": {
+        "ready": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "unequal-status",
+      "expression": "response.status != 200",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "value": false
+      }
+    },
+    {
+      "id": "short-circuit-and",
+      "expression": "false and response.body.missing = true",
+      "status": 200,
+      "body": {},
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "value": false
+      }
+    },
+    {
+      "id": "short-circuit-or",
+      "expression": "true or response.body.missing = true",
+      "status": 200,
+      "body": {},
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "no-string-coercion",
+      "expression": "response.body.value.status = \"true\"",
+      "status": 200,
+      "body": {
+        "value": {
+          "status": true,
+          "attempts": 3,
+          "label": "ready"
+        }
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "typeMismatch"
+      }
+    },
+    {
+      "id": "missing-property",
+      "expression": "response.body.flag = true",
+      "status": 200,
+      "body": {},
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "unavailable"
+      }
+    },
+    {
+      "id": "null-property",
+      "expression": "response.body.flag = true",
+      "status": 200,
+      "body": {
+        "flag": null
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "unavailable"
+      }
+    },
+    {
+      "id": "structured-property",
+      "expression": "response.body.flag = true",
+      "status": 200,
+      "body": {
+        "flag": {}
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "typeMismatch"
+      }
+    },
+    {
+      "id": "missing-binding",
+      "expression": "inputs.ready",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "unavailable"
+      }
+    },
+    {
+      "id": "cancelled",
+      "expression": "true",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": true,
+      "expected": {
+        "error": "cancelled"
+      }
+    },
+    {
+      "id": "forbidden-namespace",
+      "expression": "response.password = 200",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "function-call",
+      "expression": "response.body.x() = true",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "leading-zero",
+      "expression": "response.status = 020",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "decimal",
+      "expression": "response.status = 2.0",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "unsafe-integer",
+      "expression": "response.status = 9007199254740992",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "general-not",
+      "expression": "not(true)",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "arithmetic",
+      "expression": "true + false",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "exponent",
+      "expression": "response.status = 2e2",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "empty",
+      "expression": "",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "unicode-token",
+      "expression": "é",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "excess-depth",
+      "expression": "(((((((((((((((((((((((((((((((((true)))))))))))))))))))))))))))))))))",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "excess-bytes",
+      "expression": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    }
+  ],
+  "extractions": [
+    {
+      "id": "token",
+      "expression": "response.body.accessToken",
+      "expected": {
+        "bodyPath": ["accessToken"]
+      }
+    },
+    {
+      "id": "nested",
+      "expression": "response.body.user.name",
+      "expected": {
+        "bodyPath": ["user", "name"]
+      }
+    },
+    {
+      "id": "metadata-not-extraction",
+      "expression": "response.status",
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "array-index",
+      "expression": "response.body.tokens[1]",
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "call",
+      "expression": "response.body.token()",
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "missing-property-segment",
+      "expression": "response.body",
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "unicode-name",
+      "expression": "response.body.é",
+      "expected": {
+        "compileError": true
+      }
+    }
+  ]
+}

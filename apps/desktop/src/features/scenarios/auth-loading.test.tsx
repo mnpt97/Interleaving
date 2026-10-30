@@ -1,17 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
 import jsonSource from '../../../../../scenarios/examples/auth-login.interl.json?raw';
 import yamlSource from '../../../../../scenarios/examples/auth-login.interl.yaml?raw';
 import { documentSchema } from '../../lib/scenario-types';
-import { openScenarioFile, validateSource } from '../../lib/tauri';
+import { openScenarioFile, validateSource } from '../../lib/desktop';
 import { createScenarioStore } from './store';
 import { moveNode, toFlowEdges, toFlowNodes } from './adapters';
 import { nodePresentation } from './node-presentation';
 import { createRunStore } from '../runs/store';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: () => false }));
-vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
+const bridge = vi.hoisted(() => ({ read: vi.fn(), open: vi.fn(), validate: vi.fn() }));
+vi.mock('../../lib/desktop', async (original) => ({
+  ...(await original<typeof import('../../lib/desktop')>()),
+  openScenarioFile: bridge.open,
+  validateSource: bridge.validate,
+  readScenarioFile: bridge.read,
+}));
 const document = documentSchema.parse(JSON.parse(jsonSource));
 afterEach(() => vi.clearAllMocks());
 
@@ -20,12 +23,11 @@ describe('auth loading through the desktop wire boundary', () => {
     ['json', jsonSource],
     ['yaml', yamlSource],
   ] as const)(
-    'replaces the workflow from a Rust-validated %s file and saves all references',
+    'replaces the workflow from a backend-validated %s file and saves all references',
     async (format, source) => {
-      // YAML parsing remains in Rust; the bridge receives its canonical typed document.
+      // YAML parsing remains in the backend; the bridge receives its canonical typed document.
       const path = `/auth-login.interl.${format}`;
-      vi.mocked(open).mockResolvedValue(path);
-      vi.mocked(invoke).mockResolvedValue({
+      bridge.open.mockResolvedValue({
         path,
         format,
         source,
@@ -58,7 +60,7 @@ describe('auth loading through the desktop wire boundary', () => {
       expect(JSON.parse(save.mock.calls[0][0])).toEqual(store.getState().document);
       expect(store.getState().format).toBe(format);
       expect(store.getState().originalSource).toBe(source);
-      expect(invoke).toHaveBeenCalledTimes(1);
+      expect(bridge.open).toHaveBeenCalledTimes(1);
     }
   );
   it('keeps auth fields and extraction references outside React Flow layout data', () => {

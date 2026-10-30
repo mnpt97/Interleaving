@@ -177,7 +177,8 @@ export function lifecycleNodes(boxes: PhaseBox[], selectedPhase: Phase, selected
       type: 'phase',
       position: { x: box.x, y: box.y },
       data: { box },
-      style: { width: box.width, height: box.height },
+      // Empty frame space belongs to the canvas; the heading and resize grip opt back in.
+      style: { width: box.width, height: box.height, pointerEvents: 'none' },
       draggable: true,
       dragHandle: '.phase-heading',
       selectable: false,

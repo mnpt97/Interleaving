@@ -1,6 +1,3 @@
-# Rust build artifacts
-target/
-
 # Node.js dependencies
 node_modules/
 
@@ -15,5 +12,20 @@ dist/
 # macOS
 .DS_Store
 
-plans
-docs
+# Keep local planning/history notes ignored, but include migration decisions/evidence.
+plans/*
+!plans/go-wails-migration.md
+docs/*
+!docs/migration/
+
+# Go desktop build outputs
+/go/bin/
+/go/frontend/dist/
+/go/interl-go
+
+/go/.task/
+/go/build/linux/appimage/build/
+/go/build/ios/xcode/overlay.json
+/go/build/ios/xcode/gen/
+/go/build/android/overlay.json
+/go/build/android/gen/

@@ -1,14 +1,18 @@
 # Interleaving — Engineering Design & Codex Implementation Brief
 
-**Status:** Proposed implementation contract · **Version:** 0.1 · **Primary platform:** macOS desktop, portable Rust CLI
+**Status:** Proposed implementation contract · **Version:** 0.1 · **Primary platform:** macOS desktop, portable Go CLI
 
-**Parallel migration experiment (2026-10-28):** the [Go + Wails migration plan](plans/go-wails-migration.md) specifies a hexagonal Go core and replaceable CLI/desktop/external-service adapters alongside the existing Rust/Tauri stack. The technology choices below describe the current implementation; no default switch or Rust removal has been approved. Preserve scenario semantics and desktop/CLI engine parity within each implementation throughout the experiment.
+**Migration complete (2026-10-30):** Wails + Go is the sole implementation. The
+user verified the packaged macOS app and authorized Go/Wails removal. Preserve
+hexagonal ports/adapters and scenario semantics. The canonical contract is
+`schemas/scenario.schema.json`; generate its TypeScript and Go-embedded consumers
+with `npm --prefix apps/desktop run schema:generate`.
 
 ## 1. Product definition
 
-**Interleaving** is a local-first, visual API concurrency and correctness testing tool. Its executable is **`interl`**. Users model independent authenticated HTTP clients, run them as isolated virtual users, coordinate their requests with barriers, and inspect event traces to uncover races such as double booking, lost updates, and broken idempotency.
+**Interleaving** is a local-first, visual API concurrency and correctness testing tool. Its headless executable is **`interl-go`**. Users model independent authenticated HTTP clients, run them as isolated virtual users, coordinate their requests with barriers, and inspect event traces to uncover races such as double booking, lost updates, and broken idempotency.
 
-This is **not** a general-purpose load testing product or a Postman clone. The differentiator is **stateful multi-client orchestration with correctness assertions**. Desktop and CLI must execute the same versioned scenario through the same Rust engine.
+This is **not** a general-purpose load testing product or a Postman clone. The differentiator is **stateful multi-client orchestration with correctness assertions**. Desktop and CLI must execute the same versioned scenario through the same Go application.
 
 ### Goals
 
@@ -17,7 +21,7 @@ This is **not** a general-purpose load testing product or a Postman clone. The d
 3. Give every virtual user its own mutable HTTP session and event stream.
 4. Coordinate concurrent operations with explicit, timeout-bounded barriers.
 5. Explain results through correlated, redacted structured events and reports.
-6. Run the same scenario locally and in CI using `interl`.
+6. Run the same scenario locally and in CI using `interl-go`.
 
 ### Non-goals for v0.1
 
@@ -27,48 +31,41 @@ Distributed workers, high-scale throughput benchmarking, arbitrary scripting, us
 
 | Layer                   | Technology                  | Responsibility                                               |
 | ----------------------- | --------------------------- | ------------------------------------------------------------ |
-| Desktop shell           | Tauri 2                     | Window, filesystem dialogs, invoke commands, event transport |
+| Desktop shell           | Wails 3                     | Window, filesystem dialogs, invoke commands, event transport |
 | UI                      | React + TypeScript + Vite   | Editor, configuration, event/timeline inspection             |
 | Styling                 | Tailwind CSS v4 + shadcn/ui | Accessible reusable UI                                       |
 | Graph editor            | `@xyflow/react`             | Visual scenario editing only                                 |
 | UI state                | Zustand                     | Editor/run state                                             |
 | UI forms/schema         | React Hook Form + Zod       | Form validation and helpful diagnostics                      |
-| Scenario models         | Rust + serde                | Authoritative versioned document contract                    |
-| Execution               | Tokio                       | Virtual-user tasks, scheduling, cancellation, barriers       |
-| HTTP                    | reqwest + rustls            | Transport, sessions, TLS, cookies                            |
-| CLI                     | clap                        | `interl validate`, `interl run`, `interl report`             |
-| Integration test server | axum                        | Controlled auth, race, timeout, echo endpoints               |
+| Scenario models         | Go models + shared JSON Schema                | Authoritative versioned document contract                    |
+| Execution               | Go contexts and goroutines                       | Virtual-user tasks, scheduling, cancellation, barriers       |
+| HTTP                    | Go net/http + crypto/tls            | Transport, sessions, TLS, cookies                            |
+| CLI                     | Go CLI adapter                        | `interl-go validate`, `interl-go run`             |
+| Integration test server | Go net/http                        | Controlled auth, race, timeout, echo endpoints               |
 
 Use current mutually compatible stable dependency versions; do not blindly pin versions from this document. Prefer simple, tested solutions to abstraction-heavy frameworks.
 
 ## 3. Repository structure
 
 ```text
-interleaving/
-├── Cargo.toml                      # Rust workspace
-├── rust-toolchain.toml             # optional stable channel pin
-├── apps/desktop/
-│   ├── package.json
-│   ├── package-lock.json
-│   ├── vite.config.ts
-│   ├── tsconfig.json
-│   ├── tsconfig.node.json
-│   ├── src/                       # React/Vite
-│   │   ├── features/scenarios/     # canvas, inspector, validation
-│   │   ├── components/ui/
-│   │   └── lib/                   # Tauri bridge, wire types
-│   └── src-tauri/                  # thin desktop adapter
-├── crates/
-│   ├── interl-core/                # models, validation, compilation
-│   ├── interl-http/                # HTTP transport/session/auth
-│   ├── interl-engine/              # runtime, virtual users, events
-│   └── interl-cli/                 # binary named `interl`
-├── scenarios/examples/
-├── plans/
-└── docs/                           # schema and verification documentation
+apps/desktop/src/                    React editor, inspectors, run visualization
+apps/desktop/src/lib/desktop/        DesktopHost port and Wails/browser adapters
+go/main.go                          Wails composition root
+go/cmd/interl-go/                    Headless CLI composition root
+go/cmd/interl-test-server/           Local HTTP fixture
+go/internal/domain/                 Scenario models, values and compilation
+go/internal/application/            Use cases, execution, ports and safe events
+go/internal/adapters/               Inbound/outbound implementations
+go/internal/bootstrap/              Application composition
+schemas/scenario.schema.json         Canonical portable file contract
+tests/fixtures/editor/               Shared editor regression fixtures
+scenarios/examples/                  Living showcase and JSON/YAML examples
 ```
 
-**Dependency direction:** `interl-core` has no UI/Tauri dependency; `interl-http` depends on core; `interl-engine` depends on core and HTTP; Tauri and CLI depend on engine/core. Neither reusable library may import Tauri. Keep UI schema adapters separate from React Flow's native node/edge types.
+**Dependency direction:** driving adapters call application ports; domain and
+application packages depend on no concrete adapters. Composition wires transport,
+credentials, FEEL, codecs, files, clocks, IDs and Charm logging. The headless CLI
+never imports Wails. Persisted scenario data remains separate from React Flow.
 
 ## 4. Domain model and ownership
 
@@ -158,14 +155,14 @@ Editor behavior:
 
 - Select a connected region or workflow calls, then **Wrap in Load** or **Wrap in Repeat**. Validate a single entry/exit and preserve references through explicit boundary mappings; reject invalid selections with actionable diagnostics.
 - Show a compact container summary such as `0 → 50 VUs · ramp 2m` or `Repeat · 10 times`. Configure load stages, counts, duration, and stop conditions in the inspector.
-- Support editing, unwrapping, undo/redo, save/reopen, and Rust validation without changing the selected nodes' meaning unexpectedly. Define schedule ownership when wrapping an existing workload selection; never silently multiply its VUs.
+- Support editing, unwrapping, undo/redo, save/reopen, and Go validation without changing the selected nodes' meaning unexpectedly. Define schedule ownership when wrapping an existing workload selection; never silently multiply its VUs.
 - Run displays scheduled versus achieved VUs, completed iterations, container/repetition identity, and stop outcomes. Use aggregate load progress and a selected-VU view rather than one DOM token per VU.
 
 Duration expiry and ramp-down stop admission of new repetitions, allow active
 work to drain within a configured grace period, then cancel remaining work and
 perform bounded per-VU cleanup. User cancellation propagates to HTTP operations
 and waits. Specify completion, failure, deadline, and cancellation outcomes in the
-shared Rust contract and keep CLI/Tauri observations equivalent. Arrival-rate
+shared Go contract and keep CLI/Wails observations equivalent. Arrival-rate
 executors, parallel execution, and cross-user coordination are not enabled by
 these containers; arrival-rate scheduling remains later work and synchronization
 remains M5.
@@ -179,7 +176,7 @@ to today's examples.
 
 ### Reusable workflows and authentication ownership
 
-Reuse authentication as a workflow/subprocess executed inside the calling VU, rather than as an independently scheduled child scenario. A parent scenario owns scheduling; a reusable workflow owns behavior and typed input/output contracts. An invocation shares only the caller's explicitly owned session/identity, receives explicit input mappings, and exposes explicit output mappings. Its temporary values remain scoped to that invocation. Authentication outputs stay Rust-only and sensitive; exported outputs inherit sensitivity and existing retention/resource limits. Bound invocation depth/count and reject direct/indirect recursive calls.
+Reuse authentication as a workflow/subprocess executed inside the calling VU, rather than as an independently scheduled child scenario. A parent scenario owns scheduling; a reusable workflow owns behavior and typed input/output contracts. An invocation shares only the caller's explicitly owned session/identity, receives explicit input mappings, and exposes explicit output mappings. Its temporary values remain scoped to that invocation. Authentication outputs stay Go-only and sensitive; exported outputs inherit sensitivity and existing retention/resource limits. Bound invocation depth/count and reject direct/indirect recursive calls.
 
 Per-VU initialization is the default place for login. A parent must not authenticate once and distribute mutable HTTP clients/cookie jars to its VUs. Supplying the same issued token to many VUs is a deliberately shared server-session test, even if the local jars differ; it requires an explicit future policy. Reusable auth workflows do not resolve secrets in React or turn scenario files into credential storage.
 
@@ -217,7 +214,7 @@ Format detection
 Format-specific parsing
           |
           v
-ScenarioDocument (Rust / Serde)
+ScenarioDocument (Go models)
           |
           v
 Schema and semantic validation
@@ -226,36 +223,21 @@ Schema and semantic validation
 Compiled Program
           |
           v
-interl-engine
+application
 ```
 
-The loader, parser, schema types, and validation logic belong in `interl-core`.
+The loader, parser, schema types, and validation logic belong in `domain/scenariocodec`.
 
-Neither `interl-engine`, `interl-http`, nor the Tauri adapter may implement separate YAML/JSON parsing or scenario validation.
+Neither `application`, `interl-http`, nor the Wails adapter may implement separate YAML/JSON parsing or scenario validation.
 
-### Rust API
+### Go API
 
 Provide a shared API conceptually equivalent to:
 
-```rust
-pub enum ScenarioFormat {
-    Json,
-    Yaml,
-}
-
-pub fn load_scenario(
-    path: &std::path::Path,
-) -> Result<ScenarioDocument, ScenarioLoadError>;
-
-pub fn parse_scenario(
-    source: &str,
-    format: ScenarioFormat,
-) -> Result<ScenarioDocument, ScenarioLoadError>;
-
-pub fn validate_scenario(
-    scenario: &ScenarioDocument,
-) -> Result<(), Vec<ValidationError>>;
-```
+The application exposes `ValidateFile`, `ValidateSource`, `InspectSource` and
+`Start` through Go interfaces. Contexts carry cancellation; typed diagnostics carry
+safe codes, field paths and optional node references. Filesystem and codec ports
+perform bounded reads and parsing before domain compilation.
 
 `load_scenario` detects the format using the file extension. Unsupported extensions must produce an explicit error rather than silently guessing.
 
@@ -263,7 +245,7 @@ pub fn validate_scenario(
 
 ### Schema requirements
 
-- Use a single set of Rust `serde` models for both formats.
+- Use a single set of Go models for both formats.
 - Every scenario must declare `schemaVersion`.
 - Unknown schema versions must be rejected with a useful diagnostic.
 - Use explicit field names and stable enum representations.
@@ -304,7 +286,7 @@ The YAML/JSON parser must not interpret FEEL syntax. FEEL validation happens sep
 
 FEEL evaluation must use the same semantics regardless of the original file format.
 
-FEEL is read-only: it may later provide extraction values, assertions, and conditions. It never schedules work or implicitly mutates state. Explicit operations own mutation; the Rust engine owns scheduling. M1 preserves strings without FEEL syntax validation or evaluation.
+FEEL is read-only: it may later provide extraction values, assertions, and conditions. It never schedules work or implicitly mutates state. Explicit operations own mutation; the Go engine owns scheduling. M1 preserves strings without FEEL syntax validation or evaluation.
 
 ### Serialization and round-tripping
 
@@ -352,7 +334,7 @@ FEEL expressions must be validated and evaluated under separate resource limits.
 
 Add tests covering:
 
-1. Equivalent YAML and JSON scenarios deserialize to equal Rust models.
+1. Equivalent YAML and JSON scenarios deserialize to equal Go models.
 2. Unsupported file extensions are rejected.
 3. Invalid YAML and JSON produce useful diagnostics.
 4. Duplicate object keys are rejected in both formats.
@@ -370,15 +352,15 @@ Add tests covering:
 - Implement the versioned `ScenarioDocument` schema.
 - Implement JSON parsing, validation, and serialization.
 - Define the `ScenarioFormat` and shared loader API.
-- Add YAML parsing using a maintained Rust YAML library.
+- Add YAML parsing using a maintained Go YAML library.
 - Add format-equivalence tests.
 - Support both file formats in `interl validate`.
-- Open and validate both formats in Tauri using the same core loader and validator; preserve source-format metadata separately from executable semantics.
+- Open and validate both formats in Wails using the same core loader and validator; preserve source-format metadata separately from executable semantics.
 
 **Milestone 2 — HTTP execution**
 
 - Ensure `interl run` accepts both formats through the shared loader.
-- Reuse the M1 Tauri loader and validator for execution inputs.
+- Reuse the M1 Wails loader and validator for execution inputs.
 - Add integration tests running equivalent YAML and JSON scenarios.
 - Retain the source-format preservation established in M1.
 
@@ -491,7 +473,7 @@ Persist a **versioned JSON document**, not React Flow's runtime state. Only `sch
 - `schemaVersion` is mandatory; reject unsupported versions with an actionable error.
 - IDs are stable and unique within their respective collections. All references must resolve.
 - `workflows[].nodes`/`edges` describe execution; workflow-local `layout.positions` is optional and never changes runtime behavior.
-- Use typed serde enums for node variants (`start`, `end`, `http`, later `extract`, `setSession`, `barrier`, `assert`, `fork`, `join`, `loop`). Keep v0.1 types deliberately small.
+- Use typed Go node variants for node variants (`start`, `end`, `http`, later `extract`, `setSession`, `barrier`, `assert`, `fork`, `join`, `loop`). Keep v0.1 types deliberately small.
 - Reject invalid graph structure: missing start/end, unreachable nodes, invalid edges, unsupported branching, unbounded cycles, duplicate IDs, invalid participant counts, missing profiles, negative/zero timeouts.
 - **M1–M2 support exactly one start, one or more sequential HTTP nodes, and exactly one end.** Reject branching, joins, cycles, and disconnected nodes. Barriers remain a future M5 capability.
 - **Historical M1 schema scope (superseded by the current V2 contract):** support a small typed contract with empty `identities` and `assertions`, and anonymous `shared` identity assignment (`identityId: null`). Reject unsupported future configurations explicitly; do not accept uninterpreted executable data. Future configurations require an explicit version/capability compatibility policy and must never silently change existing scenario meaning.
@@ -505,18 +487,18 @@ Persist a **versioned JSON document**, not React Flow's runtime state. Only `sch
 YAML / JSON file / React editor
          |
          v
-interl-core: parse -> validate -> compile
+domain/scenariocodec: parse -> validate -> compile
          |
          v
 Immutable Program + resolved run config
          |
          v
-interl-engine: RunCoordinator
-         |---- VirtualUser 1 -> isolated HttpSession -> reqwest
-         |---- VirtualUser 2 -> isolated HttpSession -> reqwest
-         |---- VirtualUser N -> isolated HttpSession -> reqwest
+application: RunCoordinator
+         |---- VirtualUser 1 -> isolated HttpSession -> HTTP transport
+         |---- VirtualUser 2 -> isolated HttpSession -> HTTP transport
+         |---- VirtualUser N -> isolated HttpSession -> HTTP transport
          |
-         +---- bounded event channel -> Tauri UI / CLI reporter
+         +---- bounded event channel -> Wails UI / CLI reporter
          +---- cancellation token
          +---- barrier registry / shared state (later milestone)
 ```
@@ -547,7 +529,7 @@ Scenario setup/teardown is distinct from per-VU initialization/cleanup. Global h
 
 Retain a VU's authenticated session across iterations by default. An explicit per-iteration reset/initialization policy can model login traffic; M4 must define it separately from ordinary repetition. No hidden refresh, retry, or reauthentication is implied. A newly instantiated VU receives new runtime state; changing load never silently changes an existing VU's identity.
 
-The Rust engine owns execution order, concurrency, coordination, and result status. React Flow owns only node placement and editing. A transport abstraction should be small and enable later TLS identity swaps; do not build a plugin framework.
+The Go engine owns execution order, concurrency, coordination, and result status. React Flow owns only node placement and editing. A transport abstraction should be small and enable later TLS identity swaps; do not build a plugin framework.
 
 ### Scheduling semantics
 
@@ -564,12 +546,12 @@ The Rust engine owns execution order, concurrency, coordination, and result stat
 - Each VU owns its own cookie store, session header overrides, token variables, and active transport handle. Its assigned identity remains stable; no mutable session state is shared between different VUs or workload groups. A subprocess intentionally uses its own caller VU's session.
 - Auth workflow: HTTP login → extract token from response → update user session header → subsequent authenticated requests. Reusable login runs in the caller's per-VU initialization context; cookie-only auth uses the same owned jar. Authentication happens for each newly started VU, including those created during a ramp.
 - Store secrets as references (environment variables / OS keychain in later phases), not literal plaintext in scenario JSON. Redact authorization, cookies, passwords, tokens, private keys, and configured sensitive fields in logs/events/exports.
-- mTLS identity is selected at TLS handshake. To rotate a certificate, create a **new reqwest Client** with the new identity, atomically replace that user's active transport for future requests, and allow in-flight requests to finish using the previous client. Record a non-secret certificate fingerprint. Never imply swapping a header rotates mTLS identity.
+- mTLS identity is selected at TLS handshake. To rotate a certificate, create a **new HTTP transport Client** with the new identity, atomically replace that user's active transport for future requests, and allow in-flight requests to finish using the previous client. Record a non-secret certificate fingerprint. Never imply swapping a header rotates mTLS identity.
 
 ## 7. HTTP behavior
 
 - Initially support GET, POST, PUT, PATCH, DELETE; path + query + headers + JSON/text body; explicit timeout.
-- Use reqwest with rustls; keep `Client` long-lived per user for connection reuse and cookies.
+- Use Go net/http with crypto/tls; keep the client/transport long-lived per user for connection reuse and cookies.
 - Treat 4xx/5xx as **HTTP responses**, not transport errors; assertions decide whether they are failures.
 - Differentiate DNS/TLS/connect/timeout/cancel errors from received HTTP statuses.
 - Cap response body bytes and event payload sizes. Preserve metadata and mark truncated content.
@@ -601,7 +583,7 @@ run.cancelled
 run.finished
 ```
 
-Use a **bounded Tokio channel** for event delivery and a monotonic sequence allocator. Define an explicit overflow/backpressure policy; correctness-critical failure events must not be silently discarded. Persist a bounded run report with summary and events. For a first implementation, avoid a database; JSON output is sufficient.
+Use a **bounded Go channel** for event delivery and a monotonic sequence allocator. Define an explicit overflow/backpressure policy; correctness-critical failure events must not be silently discarded. Persist a bounded run report with summary and events. For a first implementation, avoid a database; JSON output is sufficient.
 
 ### Run result states
 
@@ -620,22 +602,19 @@ interl run scenarios/examples/hello-api.json --env staging --output results.json
 interl report results.json
 ```
 
-`interl-cli` is the Cargo package; its binary name is **`interl`**. CLI and desktop must call the same `interl-core` validator and `interl-engine` runner.
+The Go CLI is built from `go/cmd/interl-go`; its binary name is **`interl-go`**. CLI and desktop use the same application ports for validation and execution.
 
 Proposed exit codes: `0` success, `1` scenario executed but assertions failed, `2` invalid input/configuration, `3` execution/infrastructure error, `130` user interruption. Document these and test them. Keep human-readable stdout/stderr separate from `--output` JSON. For CI, report schema must be versioned.
 
-## 10. Tauri desktop API
+## 10. Wails desktop API
 
-Tauri remains a thin adapter. Proposed commands:
-
-```text
-validate_scenario(source: string, format: ScenarioFormat) -> ValidationResult
-open_scenario(path: string) -> OpenScenarioResult
-start_scenario(json: string, options: RunOptions) -> { runId: string }
-cancel_scenario(runId: string) -> CancellationResult
-```
-
-Stream `RunEvent` through a Tauri Channel (preferred for high-frequency streaming) or a suitably bounded event mechanism. Do not block command handlers for the duration of a run. Ensure only active run IDs can be cancelled, and clean up finished run handles.
+Wails is a thin driving adapter around the same Go application used by the CLI.
+Scenario open/read/save/validate, start/cancel, and report export use typed service
+bindings. The official Wails JSONStream carries bounded, safe run events and the
+terminal report. Native dialogs, close protection and appearance stay in the Wails
+adapter. React imports only the DesktopHost port; browser preview has its own
+non-native adapter. The application depends on ports for transport, credentials,
+files, expressions, timers, IDs and logging. Composition injects Charm Log.
 
 ### UI layout
 
@@ -649,7 +628,7 @@ Editor changes are separate from the immutable snapshot captured at run start. D
 
 ### Scenario authoring and execution modes (M3.5)
 
-**Planned Phase 6b:** author the main scenario on one canvas with Initialize,
+**Implemented Phase 6b:** author the main scenario on one canvas with Initialize,
 Iteration, and Cleanup containers between scenario Start/End boundaries. Nodes
 and reusable workflow calls belong explicitly to a phase; canvas geometry does
 not determine membership. Initially project/compile containers through the
@@ -662,7 +641,7 @@ correction belongs in M3.5; VU scheduling and repetition remain M4.
 
 Add a Camunda-style modeling workflow using the existing React Flow setup: a palette of typed nodes, contextual add/connect/delete actions, arrowheads showing connection direction, and configuration through the collapsible inspector. This is an interaction reference, not BPMN file-format compatibility or adoption of Camunda engine semantics.
 
-**Edit mode** creates/modifies scenarios, reusable workflows, lifecycle bindings, connections, client profiles, identity references, workload groups, and node inputs/outputs. The explorer distinguishes definitions from runtime users; workflow selectors and expandable subprocesses expose reusable authentication. M3.5 enables only one executing group/VU with one iteration; unsupported load executors are not presented as runnable. HTTP configuration includes method/path/headers/body/timeout and explicit response extraction/output references. Validation connects Rust field/node diagnostics to the inspector and canvas. Provide dirty-state handling, undo/redo, and save/load without serializing React Flow runtime objects or resolved secrets.
+**Edit mode** creates/modifies scenarios, reusable workflows, lifecycle bindings, connections, client profiles, identity references, workload groups, and node inputs/outputs. The explorer distinguishes definitions from runtime users; workflow selectors and expandable subprocesses expose reusable authentication. M3.5 enables only one executing group/VU with one iteration; unsupported load executors are not presented as runnable. HTTP configuration includes method/path/headers/body/timeout and explicit response extraction/output references. Validation connects Go field/node diagnostics to the inspector and canvas. Provide dirty-state handling, undo/redo, and save/load without serializing React Flow runtime objects or resolved secrets.
 
 **Run mode** displays the immutable captured scenario, workload/workflow bindings, and layout, with execution markers (visual “tokens”) driven by engine events. Show active/completed/failed/cancelled nodes and observed edge traversal; the canvas is read-only. Tokens represent workflow progress, never authentication values. Correlate progress with group/VU/iteration/workflow/invocation/node identity so repeated subprocesses do not collide. M3.5 shows one VU; M4 adds aggregate group counts and a selected-VU view rather than rendering every VU as a DOM token. Preserve invocation paths in traces and safe input/output inspection. Preserve safe trace inspection, Cancel/export, reduced-motion support, and separation from edits made after run start. Edit/Run workspace modes coexist with bottom Validation/Run detail tabs.
 
@@ -670,16 +649,16 @@ Branching is an explicit requested capability. The user-accepted allocation is e
 
 M3.5 uses scenario schema v2 and report/live protocol v3 as specified in [ADR 0002](docs/adr/0002-editor-and-routing.md). The accepted pre-Phase-2 amendment removes V1 loading/migration entirely. Phases 1–6 provide typed scalar ports, bounded calls/cleanup, named extraction outputs, exclusive routing, and invocation-aware captured Run visualization. Run uses safe graph keys/labels and preserves its results independently of the editable document; see [progress](docs/milestone-3.5.md).
 
-See the [M3.5 implementation plan](plans/milestone-3.5.md) for dependency order and acceptance criteria. Phases 1–6 are implemented; Phase 6b's unified lifecycle canvas and Phase 7 end-to-end/native acceptance remain pending.
+See the [M3.5 implementation plan](plans/milestone-3.5.md) for dependency order and acceptance criteria. Phases 1–6 are implemented; Phase 6b's unified lifecycle canvas is implemented; remaining M3.5 end-to-end acceptance is tracked separately.
 
 ## 11. Milestones and acceptance criteria
 
 | Milestone                 | Deliverable                                                                      | Acceptance                                                             |
 | ------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| **M1 — Foundation**       | Workspace, desktop scaffold, scenario models/validator, CLI `validate`, canvas   | CLI and Tauri validate the same `hello-api.json`; unit tests pass      |
+| **M1 — Foundation**       | Workspace, desktop scaffold, scenario models/validator, CLI `validate`, canvas   | CLI and Wails validate the same `hello-api.json`; unit tests pass      |
 | **M2 — Single-user HTTP** | HTTP adapter, sequential engine, event channel, `interl run`, response inspector | GET/POST execute in desktop and CLI; errors/timeouts/cancel observable |
 | **M3 — Stateful auth**    | Identity refs, login/extract/session updates, one user-owned session              | Single-user bearer/cookie auth; redacted CLI/desktop reports               |
-| **M3.5 — Scenario editor** | Unified Initialize/Iteration/Cleanup canvas, reusable calls, typed inspectors/validation, directed canvas, exclusive branches, Edit/Run tokens; one VU/iteration | Create/edit/save all lifecycle phases on one canvas, run the immutable snapshot, and visualize actual progress; exclusive routing and failure cleanup match the approved Rust contract |
+| **M3.5 — Scenario editor** | Unified Initialize/Iteration/Cleanup canvas, reusable calls, typed inspectors/validation, directed canvas, exclusive branches, Edit/Run tokens; one VU/iteration | Create/edit/save all lifecycle phases on one canvas, run the immutable snapshot, and visualize actual progress; exclusive routing and failure cleanup match the approved Go contract |
 | **M4 — Virtual users**    | Multiple workload groups, fixed/ramping VUs, graphical Load/Repeat execution containers, bounded count/duration/until repetition, identity assignment, global hooks, bounded concurrency | Independent groups ramp correctly; containers wrap/unwrap and save/reopen; per-VU auth/session isolation, conditional limits, graceful stop, bounded resources; two-user auth isolation proof |
 | **M5 — Synchronization**  | Barriers, parallel fork/join, cross-user assertions; exclusive branching delivered in M3.5                            | Controlled double-booking test catches broken invariant                |
 | **M6 — Network/TLS**      | mTLS identity lifecycle, explicit retry policies, fault handling                 | Rotation uses new transport; in-flight requests remain safe            |
@@ -688,37 +667,14 @@ See the [M3.5 implementation plan](plans/milestone-3.5.md) for dependency order 
 
 M3 scope follows the [accepted authentication ADR](docs/adr/0001-m3-auth-foundation.md): production retains one group/count 1; new two-user isolation tests and the two-user acceptance proof move to M4. Existing session-isolation coverage remains. Implementation and automated evidence are recorded in [M3 progress](docs/milestone-3.md); native acceptance remains separately tracked.
 
-### M1 detailed task order
+### Implemented foundation
 
-1. Verify existing Node, stable Rust, Xcode Command Line Tools, and Tauri prerequisites without changing global toolchain defaults.
-2. **Scaffold initialization completed:** Tauri 2 React/TS already exists in `apps/desktop/`. Preserve it; add Tailwind v4, shadcn/ui, React Flow, Zustand, Zod, and React Hook Form.
-3. **Workspace initialization completed:** the root workspace and four Rust crates already exist. Preserve membership and keep Tauri's generated manifest valid; define profiles only at the root.
-4. Implement serde scenario structs in `interl-core` and a stable error format: error code, JSON path, message, optional node ID.
-5. Implement `parse_scenario`, `validate_scenario`, and `compile_scenario` (compiler may initially only accept linear graphs).
-6. Create `hello-api.json` with one client, one user, start → GET `/health` → end.
-7. Implement `interl validate <path>` via clap with exit code `0` or `2`.
-8. Add Tauri `validate_scenario` using the same core function.
-9. Render scenario nodes/edges on React Flow; keep layout positions separate; show inspector and validation diagnostics.
-10. Add tests: valid scenario, unsupported version, duplicate IDs, missing client profile, dangling edge, unreachable node, invalid cycle.
-11. Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, frontend build, Tauri dev.
-
-**M1 definition of done:** a developer can open a scenario in the desktop UI, see/edit its graph layout, validate it, and run the exact same validation with `interl validate`. No HTTP execution is required yet.
-
-### M2 detailed task order
-
-1. Implement an `HttpSession` in `interl-http` from an immutable client profile, with a per-user `reqwest::Client`, session headers, request timeout, and response size limit.
-2. Support GET/POST, request headers, path interpolation, JSON body, and structured response/error types.
-3. Implement a sequential `ExecutionPlan` runner for start → HTTP → end and one virtual user.
-4. Add cancellation token and timeouts. Avoid panics for expected network errors.
-5. Implement `RunEvent` types, monotonic sequence IDs, elapsed timestamps, and bounded event streaming.
-6. Implement `interl run <path> [--output results.json]` using the shared engine; produce versioned JSON report.
-7. Add Tauri start/cancel commands and stream events to the frontend.
-8. Build run panel: Run/Cancel, step status, timeline, request/response inspector, clear failures.
-9. Build an axum test server with `/health`, `/echo`, `/not-found`, `/slow`.
-10. Integration tests: status 200, 404 response vs transport failure, POST body, headers, timeout, cancellation, event ordering, JSON report, CLI exit behavior.
-11. Verify desktop and CLI produce semantically equivalent results from the same scenario.
-
-**M2 definition of done:** a single virtual user executes a real HTTP workflow from either interface, with a redacted event trace and a machine-readable result.
+The Go domain, application, CLI, Wails adapter, HTTP sessions and shared frontend
+implement M1–M3 and the delivered M3.5 editor/runtime scope. New work extends these
+ports and adapters rather than scaffolding another runtime. Regression requirements
+include strict JSON/YAML admission, graph/dataflow checks, auth redaction,
+cancellation/cleanup, bounded capture, draft save/reopen and native dialogs.
+Use `go test ./...`, `go vet ./...`, schema drift checks and the frontend suites.
 
 ## 12. Security and reliability guardrails
 
@@ -731,24 +687,17 @@ M3 scope follows the [accepted authentication ADR](docs/adr/0001-m3-auth-foundat
 - Document that client-side barriers cannot guarantee exact simultaneous server execution.
 - Don't call a run deterministic unless the server/environment is controlled; use **reproducible scenario and recorded trace**.
 
-## 13. Codex working instructions
+## 13. Implementation and verification
 
-**When implementing this design:**
+The Wails desktop and Go CLI are implemented in `go/`, with shared React source
+in `apps/desktop/`. Core domain/application packages remain independent of Wails,
+HTTP/filesystem implementations and the external FEEL library. Keep adapters
+replaceable; runtime logging uses the logging port and Charm adapter.
 
-1. Inspect the existing repository first; preserve working generated Tauri code and project configuration.
-2. Implement **one milestone at a time**, starting with M1. Do not implement M3–M8 ahead of acceptance.
-3. Before changes, briefly state the files you will touch and the acceptance criteria.
-4. Prefer small cohesive Rust modules and typed errors; avoid `unwrap` in runtime paths.
-5. Add tests with each behavior. Use a local axum server rather than real public APIs for integration tests.
-6. Keep the schema and runtime independent of the frontend. Do not serialize React Flow node objects as scenario files.
-7. Keep code compiling at the end of each step; run formatting, tests, linting, and frontend build when tools are available.
-8. If an API or dependency differs from assumptions, inspect installed versions and adjust rather than forcing outdated snippets.
-9. Explain any intentional deviation from this design in a short ADR or change note.
-10. Never claim an unimplemented CLI command or UI feature works.
-
-### Suggested first Codex prompt
-
-> Read `DESIGN.md` in full. Inspect the current repository and implement **Milestone 1 only**. Start by reporting the existing scaffold and a short file-by-file plan. Establish the Rust workspace and four crates, define the versioned scenario schema and validator in `interl-core`, implement `interl validate`, add a minimal example scenario and validation tests, and connect the same validator to Tauri. If time permits, render the scenario in React Flow without coupling the persisted schema to React Flow types. Preserve existing generated configuration. Run all available checks and report precisely what passed, failed, or could not be run. Do not start HTTP execution or later milestones.
+Use the [README](README.md) for startup, packaging and verification. The migration
+and user acceptance are recorded in [the migration plan](plans/go-wails-migration.md).
+Continue M3.5/M4 product work from its milestone plan; do not reintroduce the retired
+runtime or expand load scheduling as part of maintenance.
 
 ## 14. Decisions to revisit later
 

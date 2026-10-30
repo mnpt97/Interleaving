@@ -8,12 +8,11 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { isTauri } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { desktopHost, hostStorageKey } from './desktop';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 type ResolvedTheme = 'light' | 'dark';
-const storageKey = 'interleaving.theme';
+const storageKey = hostStorageKey('interleaving.theme');
 const mediaQuery = '(prefers-color-scheme: dark)';
 
 function readPreference(): ThemePreference {
@@ -72,8 +71,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => media?.removeEventListener('change', update);
   }, []);
   useEffect(() => {
-    if (isTauri())
-      void getCurrentWindow()
+    if (desktopHost.native)
+      void desktopHost
         .setTheme(preference === 'system' ? null : resolvedTheme)
         .catch((error: unknown) => console.warn('Could not update native window appearance.', error));
   }, [preference, resolvedTheme]);

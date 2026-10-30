@@ -1,3 +1,4 @@
+import { desktopHost } from './lib/desktop';
 import { LifecycleSidebar } from './features/scenarios/LifecycleSidebar';
 import { phases, ownsPhase } from './features/scenarios/lifecycle';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
@@ -20,7 +21,7 @@ import {
 } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { ThemeControl } from './components/ThemeControl';
-import { desktopAvailable } from './lib/tauri';
+import { desktopAvailable } from './lib/desktop';
 import { NodeInspector } from './features/scenarios/NodeInspector';
 import { WorkspacePanels } from './components/WorkspacePanels';
 import { PanelResizeHandle } from './components/PanelResizeHandle';
@@ -65,13 +66,10 @@ function App() {
     window.addEventListener('beforeunload', close);
     let unlisten: (() => void) | undefined;
     let disposed = false;
-    if (desktopAvailable)
-      void import('@tauri-apps/api/window')
-        .then(async ({ getCurrentWindow }) => {
-          const stop = await getCurrentWindow().onCloseRequested(async (event) => {
-            event.preventDefault();
-            if (await useScenarioStore.getState().requestClose()) await getCurrentWindow().destroy();
-          });
+    if (desktopHost.native)
+      void desktopHost
+        .onCloseRequested(() => useScenarioStore.getState().requestClose())
+        .then((stop) => {
           if (disposed) stop();
           else unlisten = stop;
         })

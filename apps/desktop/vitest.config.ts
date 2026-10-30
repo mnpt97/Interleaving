@@ -9,7 +9,7 @@ export default defineConfig({
       allow: [
         fileURLToPath(new URL('./', import.meta.url)),
         fileURLToPath(new URL('../../scenarios/examples', import.meta.url)),
-        fileURLToPath(new URL('../../crates/interl-engine/tests/fixtures', import.meta.url)),
+        fileURLToPath(new URL('../../tests/fixtures/editor', import.meta.url)),
       ],
     },
   },

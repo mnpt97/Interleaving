@@ -1,10 +1,11 @@
+import { hostStorageKey } from '../../lib/desktop';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Phase, PhaseBox } from './lifecycle';
 
 type Size = Pick<PhaseBox, 'width' | 'height' | 'minX' | 'minY'> &
   Partial<Pick<PhaseBox, 'x' | 'y'>> & { resized?: boolean };
 type Sizes = Partial<Record<Phase, Size>>;
-const storageKey = (id: string) => `interleaving.phase-layout:${id}`;
+const storageKey = (id: string) => hostStorageKey(`interleaving.phase-layout:${id}`);
 function read(id: string, defaults: PhaseBox[]): Sizes {
   try {
     const payload = JSON.parse(localStorage.getItem(storageKey(id)) ?? '{}');

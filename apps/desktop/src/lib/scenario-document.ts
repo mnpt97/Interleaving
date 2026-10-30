@@ -2,7 +2,7 @@ import { z } from 'zod';
 import contract from '../../../../schemas/scenario.schema.json';
 import type { ScenarioFile } from './generated/scenario-file';
 
-/** Generated Rust file contract; the schemas below only normalize editor defaults. */
+/** Shared schema file contract; the schemas below only normalize editor defaults. */
 export const scenarioFileSchema = z.fromJSONSchema(
   contract as Parameters<typeof z.fromJSONSchema>[0]
 ) as z.ZodType<ScenarioFile>;

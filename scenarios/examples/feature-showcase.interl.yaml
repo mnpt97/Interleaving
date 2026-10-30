@@ -147,6 +147,8 @@ workflows:
             items:
             - source: literal
               value: showcase
+            - source: literal
+              value: '<ready>&雪'
             - source: environment
               name: label
           identity:
@@ -577,7 +579,7 @@ workflows:
     name: Cleanup Health
     config:
       method: GET
-      path: /health
+      path: /health?label=${label}
   - id: end
     type: end
     name: Finish

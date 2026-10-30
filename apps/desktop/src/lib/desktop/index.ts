@@ -1,0 +1,16 @@
+import { wailsHost } from './wails';
+import { browserHost } from './browser';
+export { errorMessage } from './errors';
+export type { DesktopHost } from './host';
+const target = import.meta.env.VITE_DESKTOP_HOST ?? 'browser';
+if (!['wails', 'browser'].includes(target)) throw new Error('Unknown desktop host target.');
+export const desktopHost = target === 'wails' ? wailsHost : browserHost;
+export const desktopAvailable = desktopHost.available;
+export const startScenario = desktopHost.startScenario;
+export const cancelScenario = desktopHost.cancelScenario;
+export const saveRunReport = desktopHost.saveRunReport;
+export const validateSource = desktopHost.validateSource;
+export const openScenarioFile = desktopHost.openScenarioFile;
+export const readScenarioFile = desktopHost.readScenarioFile;
+export const saveScenarioJson = desktopHost.saveScenarioJson;
+export const hostStorageKey = (key: string) => (target === 'wails' ? `interleaving-go.${key}` : key);

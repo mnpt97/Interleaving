@@ -4,11 +4,14 @@ import { useRunView } from './useRunView';
 import { nodeProgress } from './projection';
 import { nodePresentation } from '../scenarios/node-presentation';
 import { Button } from '../../components/ui/button';
+import { TooltipProvider } from '../../components/ui/tooltip';
+import { RunStatusIcon } from './RunStatusIcon';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 
 export function RunSidebar() {
   const { run, projection, workflow, invocation } = useRunView();
   return (
-    <>
+    <TooltipProvider delayDuration={350}>
       <h2>Workflow</h2>
       {(invocation?.parentId || run.canvasView === 'invocation') && (
         <Button
@@ -55,7 +58,7 @@ export function RunSidebar() {
               <AccordionItem key={phase} value={phase}>
                 <AccordionTrigger>
                   <span>{phaseName[phase]}</span>{' '}
-                  <small>{projection.phases[phase] ?? (phaseWorkflow ? 'pending' : 'not configured')}</small>
+                  <RunStatusIcon status={projection.phases[phase] ?? (phaseWorkflow ? 'pending' : 'not configured')} />
                 </AccordionTrigger>
                 <AccordionContent>
                   {nodes.length ? (
@@ -72,7 +75,7 @@ export function RunSidebar() {
                         >
                           <Icon size={16} />
                           <span>{node.name ?? node.id}</span>
-                          <small>{nodeProgress(root, node.key)}</small>
+                          <RunStatusIcon status={nodeProgress(root, node.key)} />
                         </button>
                       );
                     })
@@ -85,42 +88,60 @@ export function RunSidebar() {
           })}
         </Accordion>
       </nav>
-      <label>
-        <select
-          aria-label="Selected run workflow"
-          value={run.canvasView === 'lifecycle' ? '__scenario__' : (workflow?.key ?? '')}
-          onChange={(event) =>
-            event.target.value === '__scenario__' ? run.showLifecycle() : run.inspectWorkflow(event.target.value)
-          }
-        >
-          <option value="__scenario__">Main scenario</option>
-          {projection.graph?.workflows.map((value) => (
-            <option key={value.key} value={value.key}>
-              {value.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Execution
-        <select
-          aria-label="Selected invocation"
-          value={invocation?.key ?? ''}
-          onChange={(event) => run.inspectInvocation(event.target.value)}
-        >
-          <option value="" disabled>
-            Not executed
-          </option>
-          {projection.invocations
-            .filter((value) => value.workflowKey === workflow?.key)
-            .map((value, index) => (
-              <option key={value.key} value={value.key}>
-                {value.phase} · {value.userId ?? 'Unknown user'} · iteration {value.iteration ?? '—'} · call {index + 1}{' '}
-                · {value.state}
-              </option>
-            ))}
-        </select>
-      </label>
+      <div className="run-sidebar-selectors">
+        <div className="run-sidebar-field">
+          <span id="run-workflow-label">Scenario / workflow</span>
+          <Select
+            value={run.canvasView === 'lifecycle' ? '__scenario__' : (workflow?.key ?? '')}
+            onValueChange={(value) => (value === '__scenario__' ? run.showLifecycle() : run.inspectWorkflow(value))}
+          >
+            <SelectTrigger
+              className="run-sidebar-select"
+              aria-label="Selected run workflow"
+              aria-labelledby="run-workflow-label"
+            >
+              <SelectValue placeholder="Select workflow" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__scenario__">Main scenario</SelectItem>
+              {projection.graph?.workflows.map((value) => (
+                <SelectItem key={value.key} value={value.key}>
+                  {value.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="run-sidebar-field">
+          <span id="run-execution-label">Execution</span>
+          <div className="run-invocation-picker">
+            <Select
+              value={invocation?.key ?? ''}
+              onValueChange={(value) => run.inspectInvocation(value)}
+              disabled={!projection.invocations.some((value) => value.workflowKey === workflow?.key)}
+            >
+              <SelectTrigger
+                className="run-sidebar-select"
+                aria-label="Selected invocation"
+                aria-labelledby="run-execution-label"
+              >
+                <SelectValue placeholder="Not executed" />
+              </SelectTrigger>
+              <SelectContent>
+                {projection.invocations
+                  .filter((value) => value.workflowKey === workflow?.key)
+                  .map((value, index) => (
+                    <SelectItem key={value.key} value={value.key}>
+                      {value.phase} · {value.userId ?? 'Unknown user'} · iteration {value.iteration ?? '—'} · call{' '}
+                      {index + 1}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <RunStatusIcon status={invocation?.state ?? 'pending'} />
+          </div>
+        </div>
+      </div>
       {run.canvasView === 'invocation' && (
         <nav aria-label="Run nodes">
           {workflow?.nodes.map((node) => {
@@ -134,7 +155,7 @@ export function RunSidebar() {
               >
                 <Icon size={16} />
                 <span>{node.name ?? node.id}</span>
-                <small>{nodeProgress(invocation, node.key)}</small>
+                <RunStatusIcon status={nodeProgress(invocation, node.key)} />
               </button>
             );
           })}
@@ -149,6 +170,6 @@ export function RunSidebar() {
           </div>
         ))}
       </section>
-    </>
+    </TooltipProvider>
   );
 }

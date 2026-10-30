@@ -1,8 +1,8 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
-import fixtureSource from '../../../../../crates/interl-engine/tests/fixtures/editor-auth-native.json?raw';
-import legacySource from '../../../../../crates/interl-engine/tests/fixtures/editor-auth.json?raw';
+import fixtureSource from '../../../../../tests/fixtures/editor/editor-auth-native.json?raw';
+import legacySource from '../../../../../tests/fixtures/editor/editor-auth.json?raw';
 import { documentSchema } from '../../lib/scenario-types';
 import { executeCommand, newDraft } from './draft';
 import { authenticationDefinition, authenticationErrors, readNativeAuthentication } from './authentication';

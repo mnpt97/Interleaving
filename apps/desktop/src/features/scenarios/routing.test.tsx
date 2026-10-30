@@ -128,8 +128,7 @@ it('opens route diagnostics at the split inspector', () => {
 });
 
 it('reproduces the executable branching fixture through editor commands', async () => {
-  const { default: fixture } =
-    await import('../../../../../crates/interl-engine/tests/fixtures/editor-routing.json?raw');
+  const { default: fixture } = await import('../../../../../tests/fixtures/editor/editor-routing.json?raw');
   const { moveNode } = await import('./adapters');
   let document = newDraft();
   document.id = 'editor-routing';

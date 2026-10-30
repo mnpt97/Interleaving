@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it } from 'vitest';
 import { RunSidebar } from './RunSidebar';
@@ -29,6 +29,10 @@ it('shows captured steps under Iteration by default and selects their execution 
   render(<RunSidebar />);
   expect(screen.getByRole('button', { name: /^Iteration / })).toHaveAttribute('aria-expanded', 'true');
   expect(screen.getByRole('button', { name: /^Cleanup / })).toHaveAttribute('aria-expanded', 'false');
+  const health = screen.getByRole('button', { name: /Check health/ });
+  expect(health).not.toHaveTextContent(/pending/i);
+  await userEvent.hover(within(health).getByRole('img', { name: 'Pending' }));
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('Pending');
   await userEvent.click(screen.getByRole('button', { name: /Check health/ }));
   expect(useRunStore.getState().selectedNode).toBe('h');
   expect(useRunStore.getState().selectedInvocation).toBeTruthy();

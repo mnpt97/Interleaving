@@ -1,0 +1,221 @@
+{
+  "formatVersion": 1,
+  "referenceCommit": "e151982c7d889ae9e566b4666162e7aada8564d1",
+  "validations": [
+    {
+      "file": "scenarios/examples/auth-cookie.interl.json",
+      "sha256": "d1945bcf0097640db4b72c21842a23f2267a6c714c3919eb8fdc32051b0f40f5",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/auth-cookie.interl.yaml",
+      "sha256": "ff7590a3adb8ba43b0b15b7e9500f6a272dbb8edf468b46f8e6412485c535b97",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/auth-login.interl.json",
+      "sha256": "0a0084e8aa67664a1483c520cbfd826d420cd8f4f34988ca357cae343a6c2d3c",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/auth-login.interl.yaml",
+      "sha256": "2180504351ce1d66da24f705fedcd789b307afc746c4981b3db72e4fe18ad493",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/body-routing.interl.json",
+      "sha256": "c1b7c3b8c48d6adc1a1d2adf5449daea91d753c07492ede9e114c924b8383886",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/body-routing.interl.yaml",
+      "sha256": "818a76090d0003744d6127326ca93015e557f6c93d200f27105193cf6d2a3e64",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/exclusive-routing.interl.json",
+      "sha256": "1271073f67757ee6366c95b0ba44d72d1da6ec009bb5b362a6c9f3d0940980a4",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/exclusive-routing.interl.yaml",
+      "sha256": "24460a7f5388ec8aa4c31597fd03f1a67ea14630727f9e23287ee0a5d5068c7d",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/feature-showcase.interl.json",
+      "sha256": "dc500243b1d4525e6e72a3befb0dfa84e8d2609972d67f1463691833814dfbbe",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/feature-showcase.interl.yaml",
+      "sha256": "f1e94b6161c8c364ab9848ad429c04ba35cab40f048c62ffe3d48c2ba9dd4a21",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/hello-api.interl.json",
+      "sha256": "f74d646024de64379e9418d12f12700b803814b0a62f5c785ee59fc0b6ab49bf",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/hello-api.interl.yaml",
+      "sha256": "ce67211a867db10e98151470e8d4b4525915035250b8246f1941a2be609d477e",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/hello-api.json",
+      "sha256": "f74d646024de64379e9418d12f12700b803814b0a62f5c785ee59fc0b6ab49bf",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/http-workflow.interl.json",
+      "sha256": "33273511b75dc016aceadb1402f93aa8492e8947384515e22572979f9041dbaf",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/http-workflow.interl.yaml",
+      "sha256": "be360053b666ca7661f0d42d8ac5a2f432ab7a2e14222acec4d8eb330aed127b",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/invalid-json.interl.json",
+      "sha256": "a55fe728c74b390104d69749581635fe91adb22395c77e7a236ca34cf2f5d769",
+      "exitCode": 2,
+      "diagnostics": [
+        {
+          "category": "Parse",
+          "code": "invalidJson",
+          "fieldPath": "$"
+        }
+      ],
+      "stdoutPresent": false,
+      "stderrPresent": true
+    },
+    {
+      "file": "scenarios/examples/reusable-auth.interl.json",
+      "sha256": "9c1250daced72e27efd593e949210f44595b7ac87616b16708e52b8ef5a90ddd",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/reusable-auth.interl.yaml",
+      "sha256": "3d86552309aab3b003c13b116d6611694ad123b5f205a7cc61605a84db03be15",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "scenarios/examples/split-health-test.json",
+      "sha256": "524c8e4afbb221613581ba00afed2fb46feb7151cf27ea4c2170302cb1e1647a",
+      "exitCode": 0,
+      "diagnostics": [],
+      "stdoutPresent": true,
+      "stderrPresent": false
+    },
+    {
+      "file": "tests/compatibility/scenarios/broken-edge.json",
+      "sha256": "ed8b47a664c646911be533e345f4106a216ec0f203e667855e2c0bbb355fbf87",
+      "exitCode": 2,
+      "diagnostics": [
+        {
+          "category": "Validation",
+          "code": "danglingEdge",
+          "fieldPath": "/workflows/0/edges/0"
+        }
+      ],
+      "stdoutPresent": false,
+      "stderrPresent": true
+    },
+    {
+      "file": "tests/compatibility/scenarios/duplicate-key.json",
+      "sha256": "cdc4d7321523b3f7f8c4b5f829be39902f34e3dcbfdd104ae41e17fa1e7b05e3",
+      "exitCode": 2,
+      "diagnostics": [
+        {
+          "category": "Parse",
+          "code": "duplicateKey",
+          "fieldPath": "/schemaVersion"
+        }
+      ],
+      "stdoutPresent": false,
+      "stderrPresent": true
+    },
+    {
+      "file": "tests/compatibility/scenarios/unknown-field.json",
+      "sha256": "762f8ceec61953b0325c7dcfeb9e442d585be5b218179dc20b32547e374ae6f7",
+      "exitCode": 2,
+      "diagnostics": [
+        {
+          "category": "Schema",
+          "code": "invalidSchema",
+          "fieldPath": "/unexpected"
+        }
+      ],
+      "stdoutPresent": false,
+      "stderrPresent": true
+    },
+    {
+      "file": "tests/compatibility/scenarios/unsupported-version.json",
+      "sha256": "ad398acd849158e3ffd6b944b7840245a4e25a28cb8a4b9d027ec17ac53a7b8c",
+      "exitCode": 2,
+      "diagnostics": [
+        {
+          "category": "Schema",
+          "code": "unsupportedVersion",
+          "fieldPath": "/schemaVersion"
+        }
+      ],
+      "stdoutPresent": false,
+      "stderrPresent": true
+    }
+  ],
+  "provenance": "Frozen migration contract; no legacy runtime is required."
+}

@@ -1,0 +1,611 @@
+{
+  "formatVersion": 1,
+  "predicates": [
+    {
+      "id": "precedence",
+      "expression": "true or false and false",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "parentheses",
+      "expression": "(true or false) and false",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": false
+      }
+    },
+    {
+      "id": "negative-zero",
+      "expression": "response.status > -0",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "safe-positive",
+      "expression": "response.status < 9007199254740991",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "safe-negative",
+      "expression": "response.status > -9007199254740991",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "unicode-string",
+      "expression": "response.body.label = \"日本語\"",
+      "status": 200,
+      "body": {
+        "label": "日本語"
+      },
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "escaped-string",
+      "expression": "response.body.label = \"a\\n\\\"b\"",
+      "status": 200,
+      "body": {
+        "label": "a\n\"b"
+      },
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "lexical-string-order",
+      "expression": "\"10\" < \"2\"",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "whitespace",
+      "expression": " response . status = 200 ",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "tab-newline",
+      "expression": "response.status\n=\t200",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "underscored-input",
+      "expression": "inputs.foo_bar = true",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "single-literal",
+      "expression": "true",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "parenthesized-comparison",
+      "expression": "(response.status = 200)",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "thirty-conjunctions",
+      "expression": "true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true",
+      "status": 200,
+      "body": null,
+      "inputs": {
+        "foo_bar": true
+      },
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "boolean-ordering",
+      "expression": "true < false",
+      "status": 200,
+      "body": {
+        "n": 9007199254740992
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "typeMismatch"
+      }
+    },
+    {
+      "id": "bare-integer",
+      "expression": "200",
+      "status": 200,
+      "body": {
+        "n": 9007199254740992
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "typeMismatch"
+      }
+    },
+    {
+      "id": "bare-string",
+      "expression": "\"hello\"",
+      "status": 200,
+      "body": {
+        "n": 9007199254740992
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "typeMismatch"
+      }
+    },
+    {
+      "id": "response-integer-float",
+      "expression": "response.body.n = 1",
+      "status": 200,
+      "body": {
+        "n": 1.0
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "typeMismatch"
+      }
+    },
+    {
+      "id": "response-unsafe-integer",
+      "expression": "response.body.n = 1",
+      "status": 200,
+      "body": {
+        "n": 9007199254740992
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "typeMismatch"
+      }
+    },
+    {
+      "id": "single-equals",
+      "expression": "response.status == 200",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "chained-comparison",
+      "expression": "200 = 200 = 200",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "plus-integer",
+      "expression": "response.status = +200",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "double-negative",
+      "expression": "response.status = --200",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "null-literal",
+      "expression": "response.body.x = null",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "reserved-property",
+      "expression": "response.body.true = true",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "unbound-namespace",
+      "expression": "environment.x = true",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "nested-input",
+      "expression": "inputs.a.b = true",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "empty-segment",
+      "expression": "response.body..x = true",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "unclosed-string",
+      "expression": "response.body.x = \"x",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "unsafe-negative",
+      "expression": "response.status > -9007199254740992",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "brackets",
+      "expression": "response.body.x[0] = true",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "thirty-one-conjunctions",
+      "expression": "true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true and true",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "too-many-comparisons",
+      "expression": "1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1 or 1 = 1",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "too-many-tokens",
+      "expression": "true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true or true",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "unpaired-surrogate",
+      "expression": "response.body.x = \"\\ud800\"",
+      "status": 200,
+      "body": null,
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "escaped-unicode",
+      "expression": "response.body.x = \"\\u65e5\"",
+      "status": 200,
+      "body": {
+        "x": "日"
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "boolean-body-ordering",
+      "expression": "response.body.left < response.body.right",
+      "status": 200,
+      "body": {
+        "left": false,
+        "right": true
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "typeMismatch"
+      }
+    },
+    {
+      "id": "mixed-type-inequality",
+      "expression": "response.body.flag != \"true\"",
+      "status": 200,
+      "body": {
+        "flag": true
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "typeMismatch"
+      }
+    },
+    {
+      "id": "numeric-logical-coercion",
+      "expression": "response.body.count and true",
+      "status": 200,
+      "body": {
+        "count": 1
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "typeMismatch"
+      }
+    },
+    {
+      "id": "string-logical-coercion",
+      "expression": "response.body.label and true",
+      "status": 200,
+      "body": {
+        "label": "false"
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "typeMismatch"
+      }
+    },
+    {
+      "id": "null-logical-coercion",
+      "expression": "response.body.flag and true",
+      "status": 200,
+      "body": {
+        "flag": null
+      },
+      "inputs": {},
+      "cancelled": false,
+      "expected": {
+        "error": "unavailable"
+      }
+    }
+  ],
+  "extractions": [
+    {
+      "id": "spaced-path",
+      "expression": " response . body . token ",
+      "expected": {
+        "bodyPath": [
+          "token"
+        ]
+      }
+    },
+    {
+      "id": "max-path",
+      "expression": "response.body.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x",
+      "expected": {
+        "bodyPath": [
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x",
+          "x"
+        ]
+      }
+    },
+    {
+      "id": "identifier-digits",
+      "expression": "response.body.token_2",
+      "expected": {
+        "bodyPath": [
+          "token_2"
+        ]
+      }
+    },
+    {
+      "id": "too-deep-path",
+      "expression": "response.body.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x",
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "reserved-name",
+      "expression": "response.body.return",
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "long-property",
+      "expression": "response.body.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "leading-digit",
+      "expression": "response.body.1x",
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "hyphen",
+      "expression": "response.body.access-token",
+      "expected": {
+        "compileError": true
+      }
+    },
+    {
+      "id": "quoted-key",
+      "expression": "response.body.\"token\"",
+      "expected": {
+        "compileError": true
+      }
+    }
+  ]
+}

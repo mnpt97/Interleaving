@@ -54,7 +54,7 @@ export function renameNode(workflow: WorkflowDefinition, nodeId: string, nextId:
   }
 }
 
-/** Immediate interaction checks only. Rust remains authoritative for dataflow and compilation. */
+/** Immediate interaction checks only. The backend remains authoritative for dataflow and compilation. */
 export function connectionError(
   workflow: WorkflowDefinition,
   from: string | null,

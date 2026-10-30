@@ -242,6 +242,62 @@ h3 {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.run-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  color: var(--muted);
+}
+.run-status-icon:is([data-status='active'], [data-status='completed']) {
+  color: var(--primary);
+}
+.run-status-icon:is([data-status='failed'], [data-status='cancelled']) {
+  color: var(--error);
+}
+.node-nav.active .run-status-icon {
+  color: inherit;
+}
+.accordion-trigger > .run-status-icon + .accordion-chevron {
+  margin-left: 0;
+}
+.run-invocation-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.run-sidebar-selectors {
+  display: grid;
+  gap: 16px;
+  margin: 20px 0;
+}
+.run-sidebar-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.run-sidebar-field > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.select-trigger.run-sidebar-select {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 9px 12px;
+  font-size: 13px;
+  text-align: left;
+}
+.run-invocation-picker .run-sidebar-select {
+  flex: 1;
+}
+.run-invocation-picker .run-sidebar-select > span:first-child {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .sidebar-section {
   margin-top: 30px;
 }
@@ -1749,6 +1805,7 @@ h3 {
   border-color: var(--primary);
 }
 .phase-heading {
+  pointer-events: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1838,6 +1895,7 @@ h3 {
 }
 
 .phase-resize-control.react-flow__resize-control.handle {
+  pointer-events: auto;
   width: 20px;
   height: 20px;
   border: 1px solid var(--border);
@@ -1920,5 +1978,7 @@ h3 {
   font-size: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .accordion-chevron { transition: none; }
+  .accordion-chevron {
+    transition: none;
+  }
 }

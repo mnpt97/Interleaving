@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { documentSchema, workflowNodeSchema } from './scenario-document';
 export { documentSchema, workflowNodeSchema, templateValueSchema, sessionHeaderSchema } from './scenario-document';
-// Wire shapes only. Rust owns semantic validation.
+// Wire shapes only. The selected backend owns semantic validation.
 export const diagnosticSchema = z.object({
   category: z.string(),
   code: z.string(),

@@ -1,0 +1,4569 @@
+{
+  "formatVersion": 1,
+  "cases": [
+    {
+      "id": "no-group",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "groups"
+          ],
+          "value": []
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "runConfiguration",
+            "fieldPath": "/groups"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "no-workflows",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows"
+          ],
+          "value": []
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "resourceLimit",
+            "fieldPath": "/workflows"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "empty-id",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "id"
+          ],
+          "value": ""
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidId",
+            "fieldPath": "/id"
+          },
+          {
+            "category": "Validation",
+            "code": "emptyId",
+            "fieldPath": "/id"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "unicode-id",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "id"
+          ],
+          "value": "日本語"
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "long-name",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "name"
+          ],
+          "value": "üüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüü"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "resourceLimit",
+            "fieldPath": "/name"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "empty-name",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "name"
+          ],
+          "value": ""
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "emptyName",
+            "fieldPath": "/name"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "missing-profiles",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles"
+          ],
+          "value": []
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "missingProfile",
+            "fieldPath": "/clientProfiles"
+          },
+          {
+            "category": "Validation",
+            "code": "missingProfile",
+            "fieldPath": "/groups/0/clientProfileId"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "zero-profile-timeout",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "timeoutMs"
+          ],
+          "value": 0
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidTimeout",
+            "fieldPath": "/clientProfiles/0/timeoutMs"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "float-profile-timeout",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "timeoutMs"
+          ],
+          "value": 1.5
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/clientProfiles/0/timeoutMs"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "huge-profile-timeout",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "timeoutMs"
+          ],
+          "value": 18446744073709552000
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/clientProfiles/0/timeoutMs"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "base-url-credentials",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "http://user:password@localhost"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidBaseUrl",
+            "fieldPath": "/clientProfiles/0/baseUrl"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "base-url-query",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "http://localhost/?x=1"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidBaseUrl",
+            "fieldPath": "/clientProfiles/0/baseUrl"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "base-url-fragment",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "http://localhost/#"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidBaseUrl",
+            "fieldPath": "/clientProfiles/0/baseUrl"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "invalid-request-path",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "1",
+            "config",
+            "path"
+          ],
+          "value": "//evil"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidRequestPath",
+            "fieldPath": "/workflows/0/nodes/1/config/path"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "zero-node-timeout",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "1",
+            "config",
+            "timeoutMs"
+          ],
+          "value": 0
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidTimeout",
+            "fieldPath": "/workflows/0/nodes/1/config/timeoutMs"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "unknown-node-field",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "1",
+            "bogus"
+          ],
+          "value": true
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/workflows/0/nodes/1"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "unknown-config-field",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "1",
+            "config",
+            "bogus"
+          ],
+          "value": true
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/workflows/0/nodes/1"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "invalid-node-type",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "1",
+            "type"
+          ],
+          "value": "parallelSplit"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/workflows/0/nodes/1/type"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "missing-start",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "0",
+            "type"
+          ],
+          "value": "http"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/workflows/0/nodes/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "duplicate-node",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "2",
+            "id"
+          ],
+          "value": "health"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "duplicateId",
+            "fieldPath": "/workflows/0/nodes/2/id"
+          },
+          {
+            "category": "Validation",
+            "code": "unknownLayoutNode",
+            "fieldPath": "/workflows/0/layout/positions/end"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "duplicate-edge-id",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "edges",
+            "1",
+            "id"
+          ],
+          "value": "edge-0"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "duplicateEdgeId",
+            "fieldPath": "/workflows/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "empty-edge-id",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "edges",
+            "0",
+            "id"
+          ],
+          "value": ""
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidId",
+            "fieldPath": "/workflows/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "bad-group-profile",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "groups",
+            "0",
+            "clientProfileId"
+          ],
+          "value": "missing"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "missingProfile",
+            "fieldPath": "/groups/0/clientProfileId"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "cleanup-zero",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "groups",
+            "0",
+            "lifecycle",
+            "cleanupTimeoutMs"
+          ],
+          "value": 0
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidTimeout",
+            "fieldPath": "/groups/0/lifecycle/cleanupTimeoutMs"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "cleanup-over-budget",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "groups",
+            "0",
+            "lifecycle",
+            "cleanupTimeoutMs"
+          ],
+          "value": 5001
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidTimeout",
+            "fieldPath": "/groups/0/lifecycle/cleanupTimeoutMs"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "missing-root",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "groups",
+            "0",
+            "lifecycle",
+            "iteration",
+            "workflowId"
+          ],
+          "value": "missing"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "missingWorkflow",
+            "fieldPath": "/groups/0/lifecycle/iteration"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "bad-layout-node",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "layout",
+            "positions",
+            "missing"
+          ],
+          "value": {
+            "x": 0,
+            "y": 1
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "unknownLayoutNode",
+            "fieldPath": "/workflows/0/layout/positions/missing"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "bad-layout-edge",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "layout",
+            "connections",
+            "missing"
+          ],
+          "value": {
+            "source": "left",
+            "target": "top"
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "unknownLayoutEdge",
+            "fieldPath": "/workflows/0/layout/connections/missing"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "explicit-null-default",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "inputs"
+          ],
+          "value": {
+            "x": {
+              "type": "string",
+              "default": null
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "portTypeMismatch",
+            "fieldPath": "/workflows/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "unsafe-integer-default",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "inputs"
+          ],
+          "value": {
+            "x": {
+              "type": "integer",
+              "default": 9007199254740992
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "portTypeMismatch",
+            "fieldPath": "/workflows/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "safe-integer-default",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "inputs"
+          ],
+          "value": {
+            "x": {
+              "type": "integer",
+              "default": 9007199254740991
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "wrong-output-type",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "outputs"
+          ],
+          "value": {
+            "x": {
+              "type": "string",
+              "value": {
+                "source": "literal",
+                "value": true
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "portTypeMismatch",
+            "fieldPath": "/workflows/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "unknown-input",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "groups",
+            "0",
+            "lifecycle",
+            "iteration",
+            "inputs"
+          ],
+          "value": {
+            "x": {
+              "source": "literal",
+              "value": "x"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "unknownInput",
+            "fieldPath": "/groups/0/lifecycle/iteration"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "required-input",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "inputs"
+          ],
+          "value": {
+            "x": {
+              "type": "string"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "missingInput",
+            "fieldPath": "/groups/0/lifecycle/iteration"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "reserved-assertions",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "assertions"
+          ],
+          "value": [
+            {}
+          ]
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "unsupportedFeature",
+            "fieldPath": "/assertions"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "invalid-header",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "headers"
+          ],
+          "value": {
+            "x-test": "bad\nvalue"
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidHeader",
+            "fieldPath": "/clientProfiles/0/headers/x-test"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "null-headers",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "headers"
+          ],
+          "value": null
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/clientProfiles/0/headers"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "unknown-environment-field",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "environment"
+          ],
+          "value": {
+            "bogus": true
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/environment/bogus"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "self-loop",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "edges",
+            "0",
+            "to"
+          ],
+          "value": "start"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "selfLoop",
+            "fieldPath": "/workflows/0/edges/0"
+          },
+          {
+            "category": "Validation",
+            "code": "nonLinearGraph",
+            "fieldPath": "/workflows/0/nodes/0"
+          },
+          {
+            "category": "Validation",
+            "code": "nonLinearGraph",
+            "fieldPath": "/workflows/0/nodes/1"
+          },
+          {
+            "category": "Validation",
+            "code": "cycle",
+            "fieldPath": "/workflows/0/edges"
+          },
+          {
+            "category": "Validation",
+            "code": "unreachableNode",
+            "fieldPath": "/workflows/0/nodes/1"
+          },
+          {
+            "category": "Validation",
+            "code": "unreachableNode",
+            "fieldPath": "/workflows/0/nodes/2"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "missing-http",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes"
+          ],
+          "value": [
+            {
+              "id": "start",
+              "type": "start"
+            },
+            {
+              "id": "end",
+              "type": "end"
+            }
+          ]
+        },
+        {
+          "path": [
+            "workflows",
+            "0",
+            "edges"
+          ],
+          "value": [
+            {
+              "id": "e",
+              "from": "start",
+              "to": "end"
+            }
+          ]
+        },
+        {
+          "path": [
+            "workflows",
+            "0",
+            "layout"
+          ],
+          "value": null
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "missingHttp",
+            "fieldPath": "/groups"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "call-recursion",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "2",
+            "nodes",
+            "2"
+          ],
+          "value": {
+            "id": "health",
+            "type": "call",
+            "config": {
+              "workflowId": "inspect"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidSourceType",
+            "fieldPath": "/workflows/2/nodes/3/config/sourceNodeId"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "unknown-call",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "2",
+            "config",
+            "workflowId"
+          ],
+          "value": "missing"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "missingWorkflow",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          },
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "call-type-mismatch",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "2",
+            "config",
+            "inputs",
+            "minimum"
+          ],
+          "value": {
+            "source": "literal",
+            "value": false
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "portTypeMismatch",
+            "fieldPath": "/workflows/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "bad-source",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "4",
+            "config",
+            "sourceNodeId"
+          ],
+          "value": "accepted"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "routeSourceUnavailable",
+            "fieldPath": "/workflows/0/nodes/4/config/sourceNodeId"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "missing-route-input",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "4",
+            "config",
+            "inputs"
+          ],
+          "value": {}
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "missingRouteInput",
+            "fieldPath": "/workflows/0/edges/4/condition/expression"
+          },
+          {
+            "category": "Validation",
+            "code": "missingRouteInput",
+            "fieldPath": "/workflows/0/edges/4/condition/expression"
+          },
+          {
+            "category": "Validation",
+            "code": "missingRouteInput",
+            "fieldPath": "/workflows/0/edges/4/condition/expression"
+          },
+          {
+            "category": "Validation",
+            "code": "missingRouteInput",
+            "fieldPath": "/workflows/0/edges/4/condition/expression"
+          },
+          {
+            "category": "Validation",
+            "code": "missingRouteInput",
+            "fieldPath": "/workflows/0/edges/4/condition/expression"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "bad-condition",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "edges",
+            "4",
+            "condition",
+            "expression"
+          ],
+          "value": "not(true)"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidRouteCondition",
+            "fieldPath": "/workflows/0/edges/4/condition/expression"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "static-condition-type",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "edges",
+            "4",
+            "condition",
+            "expression"
+          ],
+          "value": "response.status = true"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidRouteCondition",
+            "fieldPath": "/workflows/0/edges/4/condition/expression"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "cross-branch-output",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "outputs"
+          ],
+          "value": {
+            "bad": {
+              "type": "integer",
+              "value": {
+                "source": "response",
+                "nodeId": "accepted",
+                "field": "status"
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "bad-auth-method",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "1",
+            "nodes",
+            "1",
+            "config",
+            "method"
+          ],
+          "value": "GET"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidAuthenticationRequest",
+            "fieldPath": "/workflows/1/nodes/1/config"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "bad-auth-credential",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "1",
+            "nodes",
+            "1",
+            "config",
+            "username",
+            "name"
+          ],
+          "value": "bad-name"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidPortName",
+            "fieldPath": "/workflows/1/nodes/1/config"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "cookie-bearer-fields",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "1",
+            "nodes",
+            "3",
+            "config",
+            "headerName"
+          ],
+          "value": "Authorization"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/workflows/1/nodes/3"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "mixed-extraction",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "2",
+            "nodes",
+            "3",
+            "config",
+            "expression"
+          ],
+          "value": "response.body.x"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/workflows/2/nodes/3"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "bad-extraction-path",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "2",
+            "nodes",
+            "3",
+            "config",
+            "outputs",
+            "ready",
+            "expression"
+          ],
+          "value": "response.body.x()"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "unsupportedExpression",
+            "fieldPath": "/workflows/2/nodes/3/config/outputs/ready/expression"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "missing-extraction-source",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "2",
+            "nodes",
+            "3",
+            "config",
+            "sourceNodeId"
+          ],
+          "value": "missing"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "missingSourceNode",
+            "fieldPath": "/workflows/2/nodes/3/config/sourceNodeId"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "unknown-extraction-output",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "2",
+            "outputs",
+            "ready",
+            "value",
+            "name"
+          ],
+          "value": "missing"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/workflows/2"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "empty-session",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "1",
+            "nodes",
+            "5",
+            "config"
+          ],
+          "value": {}
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "emptySessionUpdate",
+            "fieldPath": "/workflows/1/nodes/5/config"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "conflicting-session",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "1",
+            "nodes",
+            "5",
+            "config",
+            "removeHeaders"
+          ],
+          "value": [
+            "X-Showcase"
+          ]
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "conflictingHeaderOperation",
+            "fieldPath": "/workflows/1/nodes/5/config/removeHeaders/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "missing-assigned-identity",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "groups",
+            "0",
+            "identityAssignment",
+            "identityId"
+          ],
+          "value": null
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "missingAssignedIdentity",
+            "fieldPath": "/groups/0/identityAssignment/identityId"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "missing-identity-field",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "identities",
+            "0",
+            "credentials"
+          ],
+          "value": {}
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "missingCredentialField",
+            "fieldPath": "/groups/0/identityAssignment/identityId"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "init-input-unavailable",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "groups",
+            "0",
+            "lifecycle",
+            "iteration",
+            "inputs",
+            "label",
+            "name"
+          ],
+          "value": "missing"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/groups/0/lifecycle/iteration"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "cleanup-cannot-read-init",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "groups",
+            "0",
+            "lifecycle",
+            "cleanup",
+            "inputs"
+          ],
+          "value": {
+            "x": {
+              "source": "lifecycle",
+              "phase": "initialize",
+              "name": "label"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "unknownInput",
+            "fieldPath": "/groups/0/lifecycle/cleanup"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "empty",
+      "source": "",
+      "format": "json",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "invalidJson",
+            "fieldPath": "$"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "trailing",
+      "source": "{} {}",
+      "format": "json",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "trailingContent",
+            "fieldPath": "$"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "duplicate",
+      "source": "{\"x\":1,\"x\":2}",
+      "format": "json",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "duplicateKey",
+            "fieldPath": "/x"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "malformed",
+      "source": "{\"x\":",
+      "format": "json",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "invalidJson",
+            "fieldPath": "$"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "unpaired-surrogate",
+      "source": "{\"x\":\"\\ud800\"}",
+      "format": "json",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "invalidJson",
+            "fieldPath": "$"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "exponent-version",
+      "source": "{\"schemaVersion\":2e0}",
+      "format": "json",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "unsupportedVersion",
+            "fieldPath": "/schemaVersion"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "float-version",
+      "source": "{\"schemaVersion\":2.0}",
+      "format": "json",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "unsupportedVersion",
+            "fieldPath": "/schemaVersion"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "nonfinite",
+      "source": "{\"schemaVersion\":2,\"x\":1e999}",
+      "format": "json",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "invalidJson",
+            "fieldPath": "$"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "nested-duplicate",
+      "source": "{\"schemaVersion\":2,\"x\":{\"a\":1,\"a\":2}}",
+      "format": "json",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "duplicateKey",
+            "fieldPath": "/x/a"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-duplicate",
+      "source": "schemaVersion: 2\nx: 1\nx: 2\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "duplicateKey",
+            "fieldPath": "/x"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-anchor",
+      "source": "schemaVersion: 2\nx: &a value\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "yamlMetadata",
+            "fieldPath": "/x"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-alias",
+      "source": "schemaVersion: 2\nx: &a value\ny: *a\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "yamlMetadata",
+            "fieldPath": "/x"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-tag",
+      "source": "schemaVersion: 2\nx: !!str value\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "yamlMetadata",
+            "fieldPath": "/x"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-merge",
+      "source": "schemaVersion: 2\nx: {<<: value}\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "yamlMerge",
+            "fieldPath": "/x"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-nonstring-key",
+      "source": "schemaVersion: 2\n1: value\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "nonStringKey",
+            "fieldPath": "$"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-multidoc",
+      "source": "schemaVersion: 2\n---\nschemaVersion: 2\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "multipleDocuments",
+            "fieldPath": "$"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-ambiguous-boolean",
+      "source": "schemaVersion: 2\nx: yes\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "ambiguousScalar",
+            "fieldPath": "/x"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-ambiguous-number",
+      "source": "schemaVersion: 2\nx: 01\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "ambiguousScalar",
+            "fieldPath": "/x"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-ambiguous-date",
+      "source": "schemaVersion: 2\nx: 2026-10-28\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "ambiguousScalar",
+            "fieldPath": "/x"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-missing-value",
+      "source": "schemaVersion: 2\nx:\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "ambiguousScalar",
+            "fieldPath": "/x"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-empty",
+      "source": "",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "emptyDocument",
+            "fieldPath": "$"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "yaml-malformed",
+      "source": "schemaVersion: [2\n",
+      "format": "yaml",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Parse",
+            "code": "invalidYaml",
+            "fieldPath": "$"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "oversized",
+      "format": "json",
+      "repeat": " ",
+      "count": 1048577,
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "ResourceLimit",
+            "code": "fileSizeLimit",
+            "fieldPath": "$"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "depth-limit",
+      "format": "json",
+      "source": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "ResourceLimit",
+            "code": "resourceLimit",
+            "fieldPath": "/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "collection-limit",
+      "format": "json",
+      "repeat": "0,",
+      "count": 10000,
+      "prefix": "[",
+      "suffix": "0]",
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "ResourceLimit",
+            "code": "collectionLimit",
+            "fieldPath": "/10000"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "uppercase-url",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "HTTP://LOCALHOST:8080/base"
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "empty-userinfo-url",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "http://@localhost"
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "backslash-url",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "http:\\\\localhost\\api"
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "encoded-host-url",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "http://%65xample.com"
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "short-url",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "http:localhost"
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "relative-url",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "/api"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidBaseUrl",
+            "fieldPath": "/clientProfiles/0/baseUrl"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "ipv6-url",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "http://[::1]:8080/base"
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "unicode-host-url",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "http://bücher.example/api"
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "space-url",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": " http://localhost "
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "invalid-port-url",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "baseUrl"
+          ],
+          "value": "http://localhost:70000"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidBaseUrl",
+            "fieldPath": "/clientProfiles/0/baseUrl"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "nonstring-identity-secret",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "identities"
+          ],
+          "value": [
+            {
+              "id": "i",
+              "credentials": {
+                "password": {
+                  "source": "env",
+                  "name": "BAD-NAME"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidSecretReference",
+            "fieldPath": "/identities/0/credentials/password/name"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "duplicate-profiles",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles"
+          ],
+          "value": [
+            {
+              "id": "api",
+              "baseUrl": "http://localhost",
+              "timeoutMs": 1
+            },
+            {
+              "id": "api",
+              "baseUrl": "http://localhost",
+              "timeoutMs": 1
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "duplicateId",
+            "fieldPath": "/clientProfiles/1/id"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "invalid-port-name",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "inputs"
+          ],
+          "value": {
+            "bad-name": {
+              "type": "string",
+              "default": "x"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidPortName",
+            "fieldPath": "/workflows/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "float-default-integer",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "inputs"
+          ],
+          "value": {
+            "x": {
+              "type": "integer",
+              "default": 1
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "ordinary-edge-condition",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "edges",
+            "0",
+            "condition"
+          ],
+          "value": {
+            "expression": "true"
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidRouteEdge",
+            "fieldPath": "/workflows/0/edges/0"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "missing-merge",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "7",
+            "type"
+          ],
+          "value": "http"
+        },
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "7",
+            "config"
+          ],
+          "value": {
+            "method": "GET",
+            "path": "/health"
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "nonLinearGraph",
+            "fieldPath": "/workflows/0/nodes/7"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "multiple-defaults",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "edges",
+            "4"
+          ],
+          "value": {
+            "id": "route-to-accepted",
+            "from": "route",
+            "to": "accepted",
+            "default": true
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "multipleDefaultRoutes",
+            "fieldPath": "/workflows/0/edges"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "unannotated-split-edge",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "edges",
+            "4"
+          ],
+          "value": {
+            "id": "route-to-accepted",
+            "from": "route",
+            "to": "accepted"
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidRouteEdge",
+            "fieldPath": "/workflows/0/edges/4"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "branch-input-type",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "4",
+            "config",
+            "inputs",
+            "minimum"
+          ],
+          "value": {
+            "source": "literal",
+            "value": false
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidRouteCondition",
+            "fieldPath": "/workflows/0/edges/4/condition/expression"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "nested-template-limit",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "5",
+            "config",
+            "body"
+          ],
+          "value": {
+            "kind": "jsonTemplate",
+            "fields": {
+              "0": {
+                "source": "literal",
+                "value": 0
+              },
+              "1": {
+                "source": "literal",
+                "value": 1
+              },
+              "2": {
+                "source": "literal",
+                "value": 2
+              },
+              "3": {
+                "source": "literal",
+                "value": 3
+              },
+              "4": {
+                "source": "literal",
+                "value": 4
+              },
+              "5": {
+                "source": "literal",
+                "value": 5
+              },
+              "6": {
+                "source": "literal",
+                "value": 6
+              },
+              "7": {
+                "source": "literal",
+                "value": 7
+              },
+              "8": {
+                "source": "literal",
+                "value": 8
+              },
+              "9": {
+                "source": "literal",
+                "value": 9
+              },
+              "10": {
+                "source": "literal",
+                "value": 10
+              },
+              "11": {
+                "source": "literal",
+                "value": 11
+              },
+              "12": {
+                "source": "literal",
+                "value": 12
+              },
+              "13": {
+                "source": "literal",
+                "value": 13
+              },
+              "14": {
+                "source": "literal",
+                "value": 14
+              },
+              "15": {
+                "source": "literal",
+                "value": 15
+              },
+              "16": {
+                "source": "literal",
+                "value": 16
+              },
+              "17": {
+                "source": "literal",
+                "value": 17
+              },
+              "18": {
+                "source": "literal",
+                "value": 18
+              },
+              "19": {
+                "source": "literal",
+                "value": 19
+              },
+              "20": {
+                "source": "literal",
+                "value": 20
+              },
+              "21": {
+                "source": "literal",
+                "value": 21
+              },
+              "22": {
+                "source": "literal",
+                "value": 22
+              },
+              "23": {
+                "source": "literal",
+                "value": 23
+              },
+              "24": {
+                "source": "literal",
+                "value": 24
+              },
+              "25": {
+                "source": "literal",
+                "value": 25
+              },
+              "26": {
+                "source": "literal",
+                "value": 26
+              },
+              "27": {
+                "source": "literal",
+                "value": 27
+              },
+              "28": {
+                "source": "literal",
+                "value": 28
+              },
+              "29": {
+                "source": "literal",
+                "value": 29
+              },
+              "30": {
+                "source": "literal",
+                "value": 30
+              },
+              "31": {
+                "source": "literal",
+                "value": 31
+              },
+              "32": {
+                "source": "literal",
+                "value": 32
+              },
+              "33": {
+                "source": "literal",
+                "value": 33
+              },
+              "34": {
+                "source": "literal",
+                "value": 34
+              },
+              "35": {
+                "source": "literal",
+                "value": 35
+              },
+              "36": {
+                "source": "literal",
+                "value": 36
+              },
+              "37": {
+                "source": "literal",
+                "value": 37
+              },
+              "38": {
+                "source": "literal",
+                "value": 38
+              },
+              "39": {
+                "source": "literal",
+                "value": 39
+              },
+              "40": {
+                "source": "literal",
+                "value": 40
+              },
+              "41": {
+                "source": "literal",
+                "value": 41
+              },
+              "42": {
+                "source": "literal",
+                "value": 42
+              },
+              "43": {
+                "source": "literal",
+                "value": 43
+              },
+              "44": {
+                "source": "literal",
+                "value": 44
+              },
+              "45": {
+                "source": "literal",
+                "value": 45
+              },
+              "46": {
+                "source": "literal",
+                "value": 46
+              },
+              "47": {
+                "source": "literal",
+                "value": 47
+              },
+              "48": {
+                "source": "literal",
+                "value": 48
+              },
+              "49": {
+                "source": "literal",
+                "value": 49
+              },
+              "50": {
+                "source": "literal",
+                "value": 50
+              },
+              "51": {
+                "source": "literal",
+                "value": 51
+              },
+              "52": {
+                "source": "literal",
+                "value": 52
+              },
+              "53": {
+                "source": "literal",
+                "value": 53
+              },
+              "54": {
+                "source": "literal",
+                "value": 54
+              },
+              "55": {
+                "source": "literal",
+                "value": 55
+              },
+              "56": {
+                "source": "literal",
+                "value": 56
+              },
+              "57": {
+                "source": "literal",
+                "value": 57
+              },
+              "58": {
+                "source": "literal",
+                "value": 58
+              },
+              "59": {
+                "source": "literal",
+                "value": 59
+              },
+              "60": {
+                "source": "literal",
+                "value": 60
+              },
+              "61": {
+                "source": "literal",
+                "value": 61
+              },
+              "62": {
+                "source": "literal",
+                "value": 62
+              },
+              "63": {
+                "source": "literal",
+                "value": 63
+              },
+              "64": {
+                "source": "literal",
+                "value": 64
+              },
+              "65": {
+                "source": "literal",
+                "value": 65
+              },
+              "66": {
+                "source": "literal",
+                "value": 66
+              },
+              "67": {
+                "source": "literal",
+                "value": 67
+              },
+              "68": {
+                "source": "literal",
+                "value": 68
+              },
+              "69": {
+                "source": "literal",
+                "value": 69
+              },
+              "70": {
+                "source": "literal",
+                "value": 70
+              },
+              "71": {
+                "source": "literal",
+                "value": 71
+              },
+              "72": {
+                "source": "literal",
+                "value": 72
+              },
+              "73": {
+                "source": "literal",
+                "value": 73
+              },
+              "74": {
+                "source": "literal",
+                "value": 74
+              },
+              "75": {
+                "source": "literal",
+                "value": 75
+              },
+              "76": {
+                "source": "literal",
+                "value": 76
+              },
+              "77": {
+                "source": "literal",
+                "value": 77
+              },
+              "78": {
+                "source": "literal",
+                "value": 78
+              },
+              "79": {
+                "source": "literal",
+                "value": 79
+              },
+              "80": {
+                "source": "literal",
+                "value": 80
+              },
+              "81": {
+                "source": "literal",
+                "value": 81
+              },
+              "82": {
+                "source": "literal",
+                "value": 82
+              },
+              "83": {
+                "source": "literal",
+                "value": 83
+              },
+              "84": {
+                "source": "literal",
+                "value": 84
+              },
+              "85": {
+                "source": "literal",
+                "value": 85
+              },
+              "86": {
+                "source": "literal",
+                "value": 86
+              },
+              "87": {
+                "source": "literal",
+                "value": 87
+              },
+              "88": {
+                "source": "literal",
+                "value": 88
+              },
+              "89": {
+                "source": "literal",
+                "value": 89
+              },
+              "90": {
+                "source": "literal",
+                "value": 90
+              },
+              "91": {
+                "source": "literal",
+                "value": 91
+              },
+              "92": {
+                "source": "literal",
+                "value": 92
+              },
+              "93": {
+                "source": "literal",
+                "value": 93
+              },
+              "94": {
+                "source": "literal",
+                "value": 94
+              },
+              "95": {
+                "source": "literal",
+                "value": 95
+              },
+              "96": {
+                "source": "literal",
+                "value": 96
+              },
+              "97": {
+                "source": "literal",
+                "value": 97
+              },
+              "98": {
+                "source": "literal",
+                "value": 98
+              },
+              "99": {
+                "source": "literal",
+                "value": 99
+              },
+              "100": {
+                "source": "literal",
+                "value": 100
+              },
+              "101": {
+                "source": "literal",
+                "value": 101
+              },
+              "102": {
+                "source": "literal",
+                "value": 102
+              },
+              "103": {
+                "source": "literal",
+                "value": 103
+              },
+              "104": {
+                "source": "literal",
+                "value": 104
+              },
+              "105": {
+                "source": "literal",
+                "value": 105
+              },
+              "106": {
+                "source": "literal",
+                "value": 106
+              },
+              "107": {
+                "source": "literal",
+                "value": 107
+              },
+              "108": {
+                "source": "literal",
+                "value": 108
+              },
+              "109": {
+                "source": "literal",
+                "value": 109
+              },
+              "110": {
+                "source": "literal",
+                "value": 110
+              },
+              "111": {
+                "source": "literal",
+                "value": 111
+              },
+              "112": {
+                "source": "literal",
+                "value": 112
+              },
+              "113": {
+                "source": "literal",
+                "value": 113
+              },
+              "114": {
+                "source": "literal",
+                "value": 114
+              },
+              "115": {
+                "source": "literal",
+                "value": 115
+              },
+              "116": {
+                "source": "literal",
+                "value": 116
+              },
+              "117": {
+                "source": "literal",
+                "value": 117
+              },
+              "118": {
+                "source": "literal",
+                "value": 118
+              },
+              "119": {
+                "source": "literal",
+                "value": 119
+              },
+              "120": {
+                "source": "literal",
+                "value": 120
+              },
+              "121": {
+                "source": "literal",
+                "value": 121
+              },
+              "122": {
+                "source": "literal",
+                "value": 122
+              },
+              "123": {
+                "source": "literal",
+                "value": 123
+              },
+              "124": {
+                "source": "literal",
+                "value": 124
+              },
+              "125": {
+                "source": "literal",
+                "value": 125
+              },
+              "126": {
+                "source": "literal",
+                "value": 126
+              },
+              "127": {
+                "source": "literal",
+                "value": 127
+              },
+              "128": {
+                "source": "literal",
+                "value": 128
+              },
+              "129": {
+                "source": "literal",
+                "value": 129
+              },
+              "130": {
+                "source": "literal",
+                "value": 130
+              },
+              "131": {
+                "source": "literal",
+                "value": 131
+              },
+              "132": {
+                "source": "literal",
+                "value": 132
+              },
+              "133": {
+                "source": "literal",
+                "value": 133
+              },
+              "134": {
+                "source": "literal",
+                "value": 134
+              },
+              "135": {
+                "source": "literal",
+                "value": 135
+              },
+              "136": {
+                "source": "literal",
+                "value": 136
+              },
+              "137": {
+                "source": "literal",
+                "value": 137
+              },
+              "138": {
+                "source": "literal",
+                "value": 138
+              },
+              "139": {
+                "source": "literal",
+                "value": 139
+              },
+              "140": {
+                "source": "literal",
+                "value": 140
+              },
+              "141": {
+                "source": "literal",
+                "value": 141
+              },
+              "142": {
+                "source": "literal",
+                "value": 142
+              },
+              "143": {
+                "source": "literal",
+                "value": 143
+              },
+              "144": {
+                "source": "literal",
+                "value": 144
+              },
+              "145": {
+                "source": "literal",
+                "value": 145
+              },
+              "146": {
+                "source": "literal",
+                "value": 146
+              },
+              "147": {
+                "source": "literal",
+                "value": 147
+              },
+              "148": {
+                "source": "literal",
+                "value": 148
+              },
+              "149": {
+                "source": "literal",
+                "value": 149
+              },
+              "150": {
+                "source": "literal",
+                "value": 150
+              },
+              "151": {
+                "source": "literal",
+                "value": 151
+              },
+              "152": {
+                "source": "literal",
+                "value": 152
+              },
+              "153": {
+                "source": "literal",
+                "value": 153
+              },
+              "154": {
+                "source": "literal",
+                "value": 154
+              },
+              "155": {
+                "source": "literal",
+                "value": 155
+              },
+              "156": {
+                "source": "literal",
+                "value": 156
+              },
+              "157": {
+                "source": "literal",
+                "value": 157
+              },
+              "158": {
+                "source": "literal",
+                "value": 158
+              },
+              "159": {
+                "source": "literal",
+                "value": 159
+              },
+              "160": {
+                "source": "literal",
+                "value": 160
+              },
+              "161": {
+                "source": "literal",
+                "value": 161
+              },
+              "162": {
+                "source": "literal",
+                "value": 162
+              },
+              "163": {
+                "source": "literal",
+                "value": 163
+              },
+              "164": {
+                "source": "literal",
+                "value": 164
+              },
+              "165": {
+                "source": "literal",
+                "value": 165
+              },
+              "166": {
+                "source": "literal",
+                "value": 166
+              },
+              "167": {
+                "source": "literal",
+                "value": 167
+              },
+              "168": {
+                "source": "literal",
+                "value": 168
+              },
+              "169": {
+                "source": "literal",
+                "value": 169
+              },
+              "170": {
+                "source": "literal",
+                "value": 170
+              },
+              "171": {
+                "source": "literal",
+                "value": 171
+              },
+              "172": {
+                "source": "literal",
+                "value": 172
+              },
+              "173": {
+                "source": "literal",
+                "value": 173
+              },
+              "174": {
+                "source": "literal",
+                "value": 174
+              },
+              "175": {
+                "source": "literal",
+                "value": 175
+              },
+              "176": {
+                "source": "literal",
+                "value": 176
+              },
+              "177": {
+                "source": "literal",
+                "value": 177
+              },
+              "178": {
+                "source": "literal",
+                "value": 178
+              },
+              "179": {
+                "source": "literal",
+                "value": 179
+              },
+              "180": {
+                "source": "literal",
+                "value": 180
+              },
+              "181": {
+                "source": "literal",
+                "value": 181
+              },
+              "182": {
+                "source": "literal",
+                "value": 182
+              },
+              "183": {
+                "source": "literal",
+                "value": 183
+              },
+              "184": {
+                "source": "literal",
+                "value": 184
+              },
+              "185": {
+                "source": "literal",
+                "value": 185
+              },
+              "186": {
+                "source": "literal",
+                "value": 186
+              },
+              "187": {
+                "source": "literal",
+                "value": 187
+              },
+              "188": {
+                "source": "literal",
+                "value": 188
+              },
+              "189": {
+                "source": "literal",
+                "value": 189
+              },
+              "190": {
+                "source": "literal",
+                "value": 190
+              },
+              "191": {
+                "source": "literal",
+                "value": 191
+              },
+              "192": {
+                "source": "literal",
+                "value": 192
+              },
+              "193": {
+                "source": "literal",
+                "value": 193
+              },
+              "194": {
+                "source": "literal",
+                "value": 194
+              },
+              "195": {
+                "source": "literal",
+                "value": 195
+              },
+              "196": {
+                "source": "literal",
+                "value": 196
+              },
+              "197": {
+                "source": "literal",
+                "value": 197
+              },
+              "198": {
+                "source": "literal",
+                "value": 198
+              },
+              "199": {
+                "source": "literal",
+                "value": 199
+              },
+              "200": {
+                "source": "literal",
+                "value": 200
+              },
+              "201": {
+                "source": "literal",
+                "value": 201
+              },
+              "202": {
+                "source": "literal",
+                "value": 202
+              },
+              "203": {
+                "source": "literal",
+                "value": 203
+              },
+              "204": {
+                "source": "literal",
+                "value": 204
+              },
+              "205": {
+                "source": "literal",
+                "value": 205
+              },
+              "206": {
+                "source": "literal",
+                "value": 206
+              },
+              "207": {
+                "source": "literal",
+                "value": 207
+              },
+              "208": {
+                "source": "literal",
+                "value": 208
+              },
+              "209": {
+                "source": "literal",
+                "value": 209
+              },
+              "210": {
+                "source": "literal",
+                "value": 210
+              },
+              "211": {
+                "source": "literal",
+                "value": 211
+              },
+              "212": {
+                "source": "literal",
+                "value": 212
+              },
+              "213": {
+                "source": "literal",
+                "value": 213
+              },
+              "214": {
+                "source": "literal",
+                "value": 214
+              },
+              "215": {
+                "source": "literal",
+                "value": 215
+              },
+              "216": {
+                "source": "literal",
+                "value": 216
+              },
+              "217": {
+                "source": "literal",
+                "value": 217
+              },
+              "218": {
+                "source": "literal",
+                "value": 218
+              },
+              "219": {
+                "source": "literal",
+                "value": 219
+              },
+              "220": {
+                "source": "literal",
+                "value": 220
+              },
+              "221": {
+                "source": "literal",
+                "value": 221
+              },
+              "222": {
+                "source": "literal",
+                "value": 222
+              },
+              "223": {
+                "source": "literal",
+                "value": 223
+              },
+              "224": {
+                "source": "literal",
+                "value": 224
+              },
+              "225": {
+                "source": "literal",
+                "value": 225
+              },
+              "226": {
+                "source": "literal",
+                "value": 226
+              },
+              "227": {
+                "source": "literal",
+                "value": 227
+              },
+              "228": {
+                "source": "literal",
+                "value": 228
+              },
+              "229": {
+                "source": "literal",
+                "value": 229
+              },
+              "230": {
+                "source": "literal",
+                "value": 230
+              },
+              "231": {
+                "source": "literal",
+                "value": 231
+              },
+              "232": {
+                "source": "literal",
+                "value": 232
+              },
+              "233": {
+                "source": "literal",
+                "value": 233
+              },
+              "234": {
+                "source": "literal",
+                "value": 234
+              },
+              "235": {
+                "source": "literal",
+                "value": 235
+              },
+              "236": {
+                "source": "literal",
+                "value": 236
+              },
+              "237": {
+                "source": "literal",
+                "value": 237
+              },
+              "238": {
+                "source": "literal",
+                "value": 238
+              },
+              "239": {
+                "source": "literal",
+                "value": 239
+              },
+              "240": {
+                "source": "literal",
+                "value": 240
+              },
+              "241": {
+                "source": "literal",
+                "value": 241
+              },
+              "242": {
+                "source": "literal",
+                "value": 242
+              },
+              "243": {
+                "source": "literal",
+                "value": 243
+              },
+              "244": {
+                "source": "literal",
+                "value": 244
+              },
+              "245": {
+                "source": "literal",
+                "value": 245
+              },
+              "246": {
+                "source": "literal",
+                "value": 246
+              },
+              "247": {
+                "source": "literal",
+                "value": 247
+              },
+              "248": {
+                "source": "literal",
+                "value": 248
+              },
+              "249": {
+                "source": "literal",
+                "value": 249
+              },
+              "250": {
+                "source": "literal",
+                "value": 250
+              },
+              "251": {
+                "source": "literal",
+                "value": 251
+              },
+              "252": {
+                "source": "literal",
+                "value": 252
+              },
+              "253": {
+                "source": "literal",
+                "value": 253
+              },
+              "254": {
+                "source": "literal",
+                "value": 254
+              },
+              "255": {
+                "source": "literal",
+                "value": 255
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "templateLimit",
+            "fieldPath": "/workflows"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "header-case-duplicate",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "1",
+            "nodes",
+            "5",
+            "config",
+            "setHeaders"
+          ],
+          "value": {
+            "X-Demo": {
+              "source": "literal",
+              "value": "x"
+            },
+            "x-demo": {
+              "source": "literal",
+              "value": "y"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "duplicateHeaderOperation",
+            "fieldPath": "/workflows/1/nodes/5/config/setHeaders/x-demo"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "forward-extraction-reference",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "1",
+            "nodes",
+            "5",
+            "config",
+            "setHeaders"
+          ],
+          "value": {
+            "x-demo": {
+              "source": "extraction",
+              "nodeId": "end",
+              "name": "missing"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "forwardReference",
+            "fieldPath": "/workflows/1/nodes/5/config/setHeaders/x-demo/nodeId"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "lifecycle-local-source",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "groups",
+            "0",
+            "lifecycle",
+            "iteration",
+            "inputs",
+            "label"
+          ],
+          "value": {
+            "source": "callOutput",
+            "nodeId": "inspect",
+            "name": "label"
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "valueNotAvailable",
+            "fieldPath": "/groups/0/lifecycle/iteration"
+          },
+          {
+            "category": "Validation",
+            "code": "invalidLifecycleReference",
+            "fieldPath": "/groups/0/lifecycle/iteration"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "workflow-call-no-http",
+      "base": "scenarios/examples/feature-showcase.interl.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "2",
+            "nodes",
+            "2"
+          ],
+          "value": {
+            "id": "health",
+            "type": "call",
+            "config": {
+              "workflowId": "main",
+              "inputs": {
+                "label": {
+                  "source": "literal",
+                  "value": "x"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invalidSourceType",
+            "fieldPath": "/workflows/2/nodes/3/config/sourceNodeId"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "invocation-depth-limit",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows"
+          ],
+          "value": [
+            {
+              "id": "w0",
+              "name": "Workflow 0",
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start"
+                },
+                {
+                  "id": "op",
+                  "type": "call",
+                  "config": {
+                    "workflowId": "w1"
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end"
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "from": "start",
+                  "to": "op"
+                },
+                {
+                  "id": "b",
+                  "from": "op",
+                  "to": "end"
+                }
+              ]
+            },
+            {
+              "id": "w1",
+              "name": "Workflow 1",
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start"
+                },
+                {
+                  "id": "op",
+                  "type": "call",
+                  "config": {
+                    "workflowId": "w2"
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end"
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "from": "start",
+                  "to": "op"
+                },
+                {
+                  "id": "b",
+                  "from": "op",
+                  "to": "end"
+                }
+              ]
+            },
+            {
+              "id": "w2",
+              "name": "Workflow 2",
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start"
+                },
+                {
+                  "id": "op",
+                  "type": "call",
+                  "config": {
+                    "workflowId": "w3"
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end"
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "from": "start",
+                  "to": "op"
+                },
+                {
+                  "id": "b",
+                  "from": "op",
+                  "to": "end"
+                }
+              ]
+            },
+            {
+              "id": "w3",
+              "name": "Workflow 3",
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start"
+                },
+                {
+                  "id": "op",
+                  "type": "call",
+                  "config": {
+                    "workflowId": "w4"
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end"
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "from": "start",
+                  "to": "op"
+                },
+                {
+                  "id": "b",
+                  "from": "op",
+                  "to": "end"
+                }
+              ]
+            },
+            {
+              "id": "w4",
+              "name": "Workflow 4",
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start"
+                },
+                {
+                  "id": "op",
+                  "type": "call",
+                  "config": {
+                    "workflowId": "w5"
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end"
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "from": "start",
+                  "to": "op"
+                },
+                {
+                  "id": "b",
+                  "from": "op",
+                  "to": "end"
+                }
+              ]
+            },
+            {
+              "id": "w5",
+              "name": "Workflow 5",
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start"
+                },
+                {
+                  "id": "op",
+                  "type": "call",
+                  "config": {
+                    "workflowId": "w6"
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end"
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "from": "start",
+                  "to": "op"
+                },
+                {
+                  "id": "b",
+                  "from": "op",
+                  "to": "end"
+                }
+              ]
+            },
+            {
+              "id": "w6",
+              "name": "Workflow 6",
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start"
+                },
+                {
+                  "id": "op",
+                  "type": "call",
+                  "config": {
+                    "workflowId": "w7"
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end"
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "from": "start",
+                  "to": "op"
+                },
+                {
+                  "id": "b",
+                  "from": "op",
+                  "to": "end"
+                }
+              ]
+            },
+            {
+              "id": "w7",
+              "name": "Workflow 7",
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start"
+                },
+                {
+                  "id": "op",
+                  "type": "call",
+                  "config": {
+                    "workflowId": "w8"
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end"
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "from": "start",
+                  "to": "op"
+                },
+                {
+                  "id": "b",
+                  "from": "op",
+                  "to": "end"
+                }
+              ]
+            },
+            {
+              "id": "w8",
+              "name": "Workflow 8",
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start"
+                },
+                {
+                  "id": "op",
+                  "type": "http",
+                  "config": {
+                    "method": "GET",
+                    "path": "/health"
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end"
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "from": "start",
+                  "to": "op"
+                },
+                {
+                  "id": "b",
+                  "from": "op",
+                  "to": "end"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "path": [
+            "groups",
+            "0",
+            "lifecycle",
+            "iteration",
+            "workflowId"
+          ],
+          "value": "w0"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Validation",
+            "code": "invocationLimit",
+            "fieldPath": "/workflows"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "profile-integral-float",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "timeoutMs"
+          ],
+          "rawValue": "1.0"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/clientProfiles/0/timeoutMs"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "profile-exponent",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "timeoutMs"
+          ],
+          "rawValue": "1e1"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/clientProfiles/0/timeoutMs"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "profile-uint64-max",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "timeoutMs"
+          ],
+          "rawValue": "18446744073709551615"
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "profile-uint64-overflow",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "clientProfiles",
+            "0",
+            "timeoutMs"
+          ],
+          "rawValue": "18446744073709551616"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/clientProfiles/0/timeoutMs"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "node-integral-float",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "1",
+            "config",
+            "timeoutMs"
+          ],
+          "rawValue": "1.0"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/workflows/0/nodes/1"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "node-uint64-max",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "1",
+            "config",
+            "timeoutMs"
+          ],
+          "rawValue": "18446744073709551615"
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    },
+    {
+      "id": "cleanup-integral-float",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "groups",
+            "0",
+            "lifecycle",
+            "cleanupTimeoutMs"
+          ],
+          "rawValue": "1000.0"
+        }
+      ],
+      "expected": {
+        "exitCode": 2,
+        "diagnostics": [
+          {
+            "category": "Schema",
+            "code": "invalidSchema",
+            "fieldPath": "/groups/0/lifecycle/cleanupTimeoutMs"
+          }
+        ],
+        "stdoutPresent": false,
+        "stderrPresent": true
+      }
+    },
+    {
+      "id": "literal-body-float",
+      "base": "scenarios/examples/hello-api.json",
+      "patches": [
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "1",
+            "config",
+            "body"
+          ],
+          "value": {
+            "kind": "json",
+            "value": "__INTERL_RAW_NUMBER_0__"
+          }
+        },
+        {
+          "path": [
+            "workflows",
+            "0",
+            "nodes",
+            "1",
+            "config",
+            "body",
+            "value"
+          ],
+          "rawValue": "1.0"
+        }
+      ],
+      "expected": {
+        "exitCode": 0,
+        "diagnostics": [],
+        "stdoutPresent": true,
+        "stderrPresent": false
+      }
+    }
+  ]
+}

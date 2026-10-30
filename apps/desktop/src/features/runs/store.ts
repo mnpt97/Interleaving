@@ -2,7 +2,7 @@ import { projectRun } from './projection';
 import { create } from 'zustand';
 import type { ScenarioDocument } from '../../lib/scenario-types';
 import type { RunEvent, RunMessage, RunReport } from '../../lib/run-types';
-import { cancelScenario, errorMessage, saveRunReport, startScenario } from '../../lib/tauri';
+import { cancelScenario, errorMessage, saveRunReport, startScenario } from '../../lib/desktop';
 interface Bridge {
   start(source: string, receive: (message: RunMessage) => void): Promise<{ runId: string }>;
   cancel(runId: string): Promise<boolean>;

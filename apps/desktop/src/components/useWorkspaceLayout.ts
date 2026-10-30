@@ -1,6 +1,7 @@
+import { hostStorageKey } from '../lib/desktop';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 
-export const WORKSPACE_LAYOUT_KEY = 'interleaving.workspace-layout';
+export const WORKSPACE_LAYOUT_KEY = hostStorageKey('interleaving.workspace-layout');
 const defaults = { workflow: 204, inspector: 268, bottom: 244 };
 type Sizes = typeof defaults;
 

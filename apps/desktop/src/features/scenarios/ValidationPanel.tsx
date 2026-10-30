@@ -1,6 +1,6 @@
 import { CheckCircle2, CircleAlert, LoaderCircle, ShieldCheck } from 'lucide-react';
 import { Button } from '../../components/ui/button';
-import { desktopAvailable } from '../../lib/tauri';
+import { desktopAvailable } from '../../lib/desktop';
 import { useScenarioStore } from './store';
 
 export function ValidationPanel() {
